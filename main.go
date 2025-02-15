@@ -1,4 +1,4 @@
-// Package main provides a command-line tool that checks domain availability
+// Package main provides a command-line tool (Talia) that checks domain availability
 // using WHOIS lookups and updates a JSON file with the results.
 package main
 
@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// DomainRecord represents one domain entry in the JSON file. It includes
-// the domain name, a log of the WHOIS response or any error, and whether
-// the domain is deemed available.
+// DomainRecord represents one domain entry in the JSON file.
+// It includes the domain name, a log of the WHOIS response or any error,
+// and whether the domain is deemed available.
 type DomainRecord struct {
 	Domain    string `json:"domain"`
 	Log       string `json:"log,omitempty"`
@@ -23,9 +23,8 @@ type DomainRecord struct {
 }
 
 // checkDomainAvailability connects to the specified WHOIS server, sends a query
-// for the given domain, and attempts to read the server's response. It returns
-// a boolean indicating availability, the raw WHOIS data (or error message),
-// and an error if the lookup fails to complete normally.
+// for the given domain, and reads the server's response. It returns whether the
+// domain appears available, the raw WHOIS response, and any error encountered.
 func checkDomainAvailability(domain, server string) (bool, string, error) {
 	conn, err := net.Dial("tcp", server)
 	if err != nil {
@@ -33,15 +32,15 @@ func checkDomainAvailability(domain, server string) (bool, string, error) {
 	}
 	defer conn.Close()
 
-	// Send the domain query to the WHOIS server.
+	// Write the domain query to the WHOIS server.
 	fmt.Fprintf(conn, "%s\r\n", domain)
 
-	// Close the write side so the server sees EOF, preventing a potential read–read deadlock.
+	// Close the write side so the server sees EOF, preventing read–read deadlocks.
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		tcpConn.CloseWrite()
 	}
 
-	// Read the entire response from the server.
+	// Read the entire server response.
 	data, err := io.ReadAll(conn)
 	if err != nil && err != io.EOF {
 		return false, "", fmt.Errorf("read error: %w", err)
@@ -58,28 +57,25 @@ func checkDomainAvailability(domain, server string) (bool, string, error) {
 	return false, response, nil
 }
 
-// runCLI parses command-line flags and arguments, reads the JSON file of
-// domains, and for each domain performs a WHOIS availability check. It then
-// writes updated results back to the file. The function returns an integer
-// exit code: 0 for success, non-zero if any error is encountered.
+// runCLI parses command-line flags and arguments, reads the JSON file,
+// and for each domain performs a WHOIS availability check. The function
+// returns an integer exit code: 0 for success, non-zero if any error occurs.
 func runCLI(args []string) int {
 	fs := flag.NewFlagSet("talia", flag.ContinueOnError)
 	whoisServer := fs.String("whois", "domain:port", "WHOIS server address (host:port)")
+	sleepDelay := fs.Duration("sleep", 2*time.Second, "Sleep duration between domain checks (e.g. 1s, 500ms)")
 
-	// Parse the provided arguments using our FlagSet.
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
 		return 1
 	}
 
-	// We require at least one non-flag argument for the JSON filename.
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: go-whois-checker [--whois=server:port] <json-file>")
+		fmt.Fprintln(os.Stderr, "Usage: go-whois-checker [--whois=server:port] [--sleep=2s] <json-file>")
 		return 1
 	}
 	filename := fs.Arg(0)
 
-	// Read the JSON file.
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading file %s: %v\n", filename, err)
@@ -92,7 +88,7 @@ func runCLI(args []string) int {
 		return 1
 	}
 
-	// Process each domain in the slice, updating the JSON file after each check.
+	// Process each domain in the slice.
 	for i, rec := range domains {
 		fmt.Printf("Checking domain: %s using WHOIS server: %s\n", rec.Domain, *whoisServer)
 		available, logDetails, err := checkDomainAvailability(rec.Domain, *whoisServer)
@@ -106,7 +102,7 @@ func runCLI(args []string) int {
 			fmt.Printf("Domain %s available: %v\n", rec.Domain, available)
 		}
 
-		// Marshal the updated domains slice and write back to file.
+		// Update the JSON file after checking the domain.
 		updatedData, err := json.MarshalIndent(domains, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
@@ -117,8 +113,8 @@ func runCLI(args []string) int {
 			return 1
 		}
 
-		// Briefly sleep to avoid spamming WHOIS.
-		time.Sleep(2 * time.Second)
+		// Sleep for the specified duration before proceeding to the next domain.
+		time.Sleep(*sleepDelay)
 	}
 
 	fmt.Println("Processing complete. Updated file:", filename)

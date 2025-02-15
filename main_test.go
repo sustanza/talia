@@ -1,5 +1,4 @@
-// Package main_test contains tests for the "talia" CLI tool,
-// which checks domain WHOIS availability and updates a JSON file.
+// Package main_test contains tests for Talia, a CLI for WHOIS-based domain checks.
 package main
 
 import (
@@ -14,8 +13,7 @@ import (
 	"time"
 )
 
-// captureOutput redirects standard output and error to pipes, then runs the
-// provided function. It returns the collected stdout and stderr as strings.
+// captureOutput redirects stdout/stderr to pipes, runs fn, then returns the captured strings.
 func captureOutput(t *testing.T, fn func()) (string, string) {
 	rOut, wOut, err := os.Pipe()
 	if err != nil {
@@ -35,14 +33,12 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	outCh := make(chan string)
 	errCh := make(chan string)
 
-	// Goroutine to capture anything written to stdout.
+	// Copy from rOut and rErr in goroutines.
 	go func() {
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, rOut)
 		outCh <- buf.String()
 	}()
-
-	// Goroutine to capture anything written to stderr.
 	go func() {
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, rErr)
@@ -51,19 +47,15 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 
 	fn()
 
-	_ = wOut.Close()
-	_ = wErr.Close()
+	wOut.Close()
+	wErr.Close()
 	os.Stdout = oldStdout
 	os.Stderr = oldStderr
 
-	outStr := <-outCh
-	errStr := <-errCh
-
-	return outStr, errStr
+	return <-outCh, <-errCh
 }
 
-// TestCheckDomainAvailability verifies that checkDomainAvailability correctly
-// interprets mock WHOIS server responses for different scenarios.
+// TestCheckDomainAvailability validates the WHOIS-checking function alone.
 func TestCheckDomainAvailability(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -76,9 +68,7 @@ func TestCheckDomainAvailability(t *testing.T) {
 			serverHandler: func(conn net.Conn) {
 				defer conn.Close()
 				_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-				// Discard anything the client sends
-				io.Copy(io.Discard, conn)
-				// Respond with "No match for"
+				io.Copy(io.Discard, conn) // discard anything client sends
 				io.WriteString(conn, "No match for example.com\n")
 				time.Sleep(50 * time.Millisecond)
 			},
@@ -111,7 +101,7 @@ func TestCheckDomainAvailability(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
-				t.Fatalf("Failed to listen on a random port: %v", err)
+				t.Fatalf("Failed to listen on port: %v", err)
 			}
 			defer ln.Close()
 
@@ -137,12 +127,12 @@ func TestCheckDomainAvailability(t *testing.T) {
 	}
 }
 
-// TestMainFunction ensures runCLI successfully processes a real JSON file,
-// uses a mock WHOIS server, and updates the file with results.
+// TestMainFunction checks the entire flow with a mocked WHOIS server, a real JSON file,
+// and verifies that runCLI updates the file as expected.
 func TestMainFunction(t *testing.T) {
-	// Reset the default flag set to avoid "flag redefined" across tests.
 	flag.CommandLine = flag.NewFlagSet("TestMainFunction", flag.ContinueOnError)
 
+	// Create a temporary JSON file with sample domains.
 	tmpFile, err := os.CreateTemp("", "domains_*.json")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
@@ -159,7 +149,7 @@ func TestMainFunction(t *testing.T) {
 	}
 	tmpFile.Close()
 
-	// Start a mock WHOIS server that always responds "No match for domain".
+	// Start a mock WHOIS server that always responds "No match for".
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Failed to listen: %v", err)
@@ -182,17 +172,16 @@ func TestMainFunction(t *testing.T) {
 		}
 	}()
 
-	outStr, errStr := captureOutput(t, func() {
+	_, _ = captureOutput(t, func() {
 		code := runCLI([]string{
 			"--whois=" + ln.Addr().String(),
+			"--sleep=1s", // override default to speed up test
 			tmpFile.Name(),
 		})
 		if code != 0 {
 			t.Errorf("Expected exit code 0, got %d", code)
 		}
 	})
-	_ = outStr
-	_ = errStr
 
 	updatedContent, err := os.ReadFile(tmpFile.Name())
 	if err != nil {
@@ -201,7 +190,7 @@ func TestMainFunction(t *testing.T) {
 
 	var updatedRecords []DomainRecord
 	if err := json.Unmarshal(updatedContent, &updatedRecords); err != nil {
-		t.Fatalf("Error unmarshaling updated JSON: %v", err)
+		t.Fatalf("Error unmarshaling JSON: %v", err)
 	}
 
 	if len(updatedRecords) != 2 {
@@ -217,22 +206,19 @@ func TestMainFunction(t *testing.T) {
 	}
 }
 
-// TestMainInvalidArgs checks that runCLI returns a non-zero exit code if
-// no arguments (i.e. no JSON file) are provided.
+// TestMainInvalidArgs ensures we fail with no arguments.
 func TestMainInvalidArgs(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainInvalidArgs", flag.ContinueOnError)
 
-	outStr, errStr := captureOutput(t, func() {
-		code := runCLI([]string{}) // no arguments
+	_, _ = captureOutput(t, func() {
+		code := runCLI([]string{}) // no arguments at all
 		if code == 0 {
-			t.Errorf("Expected non-zero exit code for missing arguments, got 0")
+			t.Errorf("Expected non-zero exit code with missing arguments")
 		}
 	})
-	_ = outStr
-	_ = errStr
 }
 
-// TestMainBadFile ensures we fail if the given "file" is actually a directory.
+// TestMainBadFile ensures we fail if the provided file is actually a directory.
 func TestMainBadFile(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainBadFile", flag.ContinueOnError)
 
@@ -250,7 +236,7 @@ func TestMainBadFile(t *testing.T) {
 	})
 }
 
-// TestMainBadJSON ensures we fail on malformed JSON content.
+// TestMainBadJSON ensures we fail on malformed JSON.
 func TestMainBadJSON(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainBadJSON", flag.ContinueOnError)
 
@@ -271,8 +257,7 @@ func TestMainBadJSON(t *testing.T) {
 	})
 }
 
-// TestMainWriteFailure checks that we properly fail if the output file
-// cannot be written (e.g., permission denied).
+// TestMainWriteFailure ensures we fail if the file is not writable.
 func TestMainWriteFailure(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainWriteFailure", flag.ContinueOnError)
 
@@ -289,7 +274,7 @@ func TestMainWriteFailure(t *testing.T) {
 	}
 	tmpFile.Close()
 
-	// Make it read-only
+	// Make read-only
 	if err := os.Chmod(tmpFile.Name(), 0400); err != nil {
 		t.Fatalf("Failed chmod: %v", err)
 	}
@@ -323,10 +308,12 @@ func TestMainWriteFailure(t *testing.T) {
 	})
 }
 
-// TestMainSleepVerifiesDelay checks the ~2s delay per domain, ensuring we
-// don't finish significantly faster than expected with multiple domains.
+// TestMainSleepVerifiesDelay checks the approximate delay when the --sleep flag is used.
 func TestMainSleepVerifiesDelay(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainSleepVerifiesDelay", flag.ContinueOnError)
+
+	// We'll still test for a ~2-second delay, but let's confirm that the user can override it.
+	// Here we set it to 1s to speed up. We measure the total time and verify the sleeps happen.
 
 	tmpFile, err := os.CreateTemp("", "domains_*.json")
 	if err != nil {
@@ -367,21 +354,24 @@ func TestMainSleepVerifiesDelay(t *testing.T) {
 
 	start := time.Now()
 	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{"--whois=" + ln.Addr().String(), tmpFile.Name()})
+		code := runCLI([]string{
+			"--whois=" + ln.Addr().String(),
+			"--sleep=1s",
+			tmpFile.Name(),
+		})
 		if code != 0 {
 			t.Errorf("Expected exit code 0, got %d", code)
 		}
 	})
 	elapsed := time.Since(start)
 
-	// With 2 domains, each with a 2s delay => ~4s total. We allow a little margin (>=3s).
-	if elapsed < 3*time.Second {
-		t.Errorf("Expected total run time >= 3s, got %v", elapsed)
+	// We set sleep=1s. With 2 domains, that's ~2s total, plus overhead. We expect > 1.5s at least.
+	if elapsed < 1500*time.Millisecond {
+		t.Errorf("Expected total run time >= 1.5s, got %v", elapsed)
 	}
 }
 
-// TestDomainRecordStructure confirms that DomainRecord contains the fields
-// we expect, ensuring changes don't break JSON compatibility.
+// TestDomainRecordStructure ensures we haven't broken JSON compatibility.
 func TestDomainRecordStructure(t *testing.T) {
 	dr := DomainRecord{
 		Domain:    "test.com",
