@@ -133,5 +133,3 @@ Below are the primary configuration options:
 
 - **`--whois=<host:port>`**: Overrides the default WHOIS server.
 - **Input JSON File**: A path to a `.json` file containing domain records.
-
-Any additional environment variables or build-time configurations can be defined and documented as needed.
