@@ -1,0 +1,137 @@
+# Talia
+
+Talia is a lightweight command-line application for checking the availability of `.com` domains by querying a specified WHOIS server. It processes a JSON file containing domain records, updates the file with WHOIS responses, and annotates each domain record with an availability status.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Disclaimer](#disclaimer)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [JSON Input Format](#json-input-format)
+  - [WHOIS Server Selection](#whois-server-selection)
+  - [Domain Checks and Rate Limiting](#domain-checks-and-rate-limiting)
+- [How It Works](#how-it-works)
+  - [Domain Checking Flow](#domain-checking-flow)
+  - [Availability Determination](#availability-determination)
+  - [File Updates](#file-updates)
+- [Testing](#testing)
+- [Configuration](#configuration)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Overview
+
+Talia reads a list of domains from a JSON file and connects to a user-specified WHOIS server to check each domain’s availability. After retrieving the WHOIS response, Talia updates the JSON file with:
+
+- The full WHOIS log.
+- A boolean indicating whether the domain appears to be available.
+
+Talia includes a **2-second delay** between checks to reduce server load, making it suitable for batch queries.
+
+## Disclaimer
+
+- **Terms of Service Compliance**: Please confirm that your chosen WHOIS provider permits automated queries and that you adhere to any usage limitations or policies they enforce.
+- **Accuracy**: The WHOIS response may vary by provider, and Talia’s availability check is based on detecting the string "No match for". This may not be reliable for all registrars or TLDs other than `.com`.
+
+## Installation
+
+### Prerequisites
+
+- [Go](https://golang.org/doc/install) (1.16+ recommended)
+
+### Steps
+
+    # Clone the Talia repository and enter the directory:
+    git clone https://github.com/sustanza/talia.git
+    cd talia
+
+    # Build the executable:
+    go build -o talia
+
+This will produce a binary named `talia` in the current directory.
+
+---
+
+## Usage
+
+Run the tool by specifying a WHOIS server and a path to the JSON file containing the domains you want to check:
+
+    ./talia --whois=whois.example.com:43 path/to/domains.json
+
+### JSON Input Format
+
+Your JSON file should be an array of objects, each containing at least a `"domain"` field. For example:
+
+    [
+      { "domain": "example.com" },
+      { "domain": "anotherexample.com" }
+    ]
+
+Talia will add or update the following fields for each entry:
+
+- `"log"`: A string with the raw WHOIS response or an error message.
+- `"available"`: A boolean indicating whether Talia deems the domain available.
+
+### WHOIS Server Selection
+
+Use the `--whois` flag to set a custom WHOIS server. If you omit this flag, Talia defaults to `domain:port` as specified in its internal logic. A typical value for `.com` might be `whois.verisign-grs.com:43`.
+
+### Domain Checks and Rate Limiting
+
+For each domain, Talia:
+
+1. Opens a TCP connection to the WHOIS server.
+2. Sends the domain query.
+3. Reads the server’s response.
+4. Updates the local JSON file immediately.
+5. **Sleeps for two seconds** before proceeding to the next domain.
+
+This built-in delay helps avoid excessive load on WHOIS servers.
+
+---
+
+## How It Works
+
+### Domain Checking Flow
+
+1. **JSON Parsing**: Talia parses the input file into a slice of domain records.
+2. **WHOIS Query**: For each record, Talia sends the domain to the WHOIS server and collects the response.
+3. **Update File**: After each check, the tool overwrites the JSON file with updated availability and logs.
+
+### Availability Determination
+
+If the WHOIS response contains the substring "No match for", Talia treats the domain as available. Otherwise, it marks the domain as unavailable. Note that different WHOIS servers may use different response formats, so this check is somewhat heuristic.
+
+### File Updates
+
+Talia writes the updated JSON data back to the same file after each domain check. Any existing fields in the JSON are preserved unless overwritten by Talia. Make sure the file is writable to avoid errors.
+
+---
+
+## Testing
+
+Talia includes a comprehensive test suite. To run all tests:
+
+    go test -v
+
+Key tests include:
+
+- **Unit Tests**: Verify domain availability checks using a mock WHOIS server.
+- **Integration Tests**: Confirm the entire CLI flow (reading JSON, querying WHOIS, updating the file) behaves as expected.
+- **Edge Cases**: Handle invalid JSON, unreadable files, immediate connection resets, and delayed responses.
+
+All tests rely solely on the Go standard library and mock TCP connections; no external dependencies are required.
+
+---
+
+## Configuration
+
+Below are the primary configuration options:
+
+- **`--whois=<host:port>`**: Overrides the default WHOIS server.
+- **Input JSON File**: A path to a `.json` file containing domain records.
+
+Any additional environment variables or build-time configurations can be defined and documented as needed.
