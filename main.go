@@ -13,48 +13,65 @@ import (
 	"time"
 )
 
+// AvailabilityReason is a short label explaining the domain's availability result.
+type AvailabilityReason string
+
+// Define constants representing the reason a domain is or is not available.
+const (
+	ReasonNoMatch AvailabilityReason = "NO_MATCH"
+	ReasonTaken   AvailabilityReason = "TAKEN"
+	ReasonError   AvailabilityReason = "ERROR"
+)
+
 // DomainRecord represents one domain entry in the JSON file.
-// It includes the domain name, a log of the WHOIS response or any error,
-// and whether the domain is deemed available.
+// It includes the domain name, whether it's available, a reason code
+// explaining that availability, and optionally the WHOIS log (if verbose).
 type DomainRecord struct {
-	Domain    string `json:"domain"`
-	Log       string `json:"log,omitempty"`
-	Available bool   `json:"available,omitempty"`
+	Domain    string             `json:"domain"`
+	Available bool               `json:"available"`
+	Reason    AvailabilityReason `json:"reason,omitempty"`
+	Log       string             `json:"log,omitempty"`
 }
 
 // checkDomainAvailability connects to the specified WHOIS server, sends a query
-// for the given domain, and reads the server's response. It returns whether the
-// domain appears available, the raw WHOIS response, and any error encountered.
-func checkDomainAvailability(domain, server string) (bool, string, error) {
+// for the given domain, and reads the server's response. It returns:
+//   - bool: Whether the domain appears available
+//   - AvailabilityReason: Short code (NO_MATCH, TAKEN, or ERROR)
+//   - string: The raw WHOIS log data
+//   - error: Any error encountered
+func checkDomainAvailability(domain, server string) (bool, AvailabilityReason, string, error) {
 	conn, err := net.Dial("tcp", server)
 	if err != nil {
-		return false, "", err
+		return false, ReasonError, "", fmt.Errorf("failed to connect to %s: %w", server, err)
 	}
 	defer conn.Close()
 
-	// Write the domain query to the WHOIS server.
+	// Send the domain query to the WHOIS server
 	fmt.Fprintf(conn, "%s\r\n", domain)
 
-	// Close the write side so the server sees EOF, preventing read–read deadlocks.
+	// Close the write side so the server sees EOF, preventing read-read deadlocks
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		tcpConn.CloseWrite()
 	}
 
-	// Read the entire server response.
+	// Read the entire server response
 	data, err := io.ReadAll(conn)
 	if err != nil && err != io.EOF {
-		return false, "", fmt.Errorf("read error: %w", err)
+		return false, ReasonError, "", fmt.Errorf("read error: %w", err)
 	}
 	if len(data) == 0 {
-		return false, "", fmt.Errorf("no data read from server")
+		return false, ReasonError, "", fmt.Errorf("no data read from server")
 	}
 
 	response := string(data)
-	// Simple heuristic: if the WHOIS response contains "No match for", treat domain as available.
+
+	// Simple heuristic: if the WHOIS response contains "No match for", treat domain as available
 	if strings.Contains(response, "No match for") {
-		return true, response, nil
+		return true, ReasonNoMatch, response, nil
 	}
-	return false, response, nil
+
+	// Otherwise, assume the domain is taken
+	return false, ReasonTaken, response, nil
 }
 
 // runCLI parses command-line flags and arguments, reads the JSON file,
@@ -62,16 +79,20 @@ func checkDomainAvailability(domain, server string) (bool, string, error) {
 // returns an integer exit code: 0 for success, non-zero if any error occurs.
 func runCLI(args []string) int {
 	fs := flag.NewFlagSet("talia", flag.ContinueOnError)
-	whoisServer := fs.String("whois", "domain:port", "WHOIS server address (host:port)")
+
+	// Add WHOIS server, sleep, and verbose flags
+	whoisServer := fs.String("whois", "whois.verisign-grs.com:43", "WHOIS server address (host:port)")
 	sleepDelay := fs.Duration("sleep", 2*time.Second, "Sleep duration between domain checks (e.g. 1s, 500ms)")
+	verbose := fs.Bool("verbose", false, "Enable verbose WHOIS logs in output JSON")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
 		return 1
 	}
 
+	// Must have at least one argument: <json-file>
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: go-whois-checker [--whois=server:port] [--sleep=2s] <json-file>")
+		fmt.Fprintln(os.Stderr, "Usage: talia [--whois=server:port] [--sleep=2s] [--verbose] <json-file>")
 		return 1
 	}
 	filename := fs.Arg(0)
@@ -84,25 +105,37 @@ func runCLI(args []string) int {
 
 	var domains []DomainRecord
 	if err := json.Unmarshal(data, &domains); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error parsing JSON in %s: %v\n", filename, err)
 		return 1
 	}
 
-	// Process each domain in the slice.
+	// Process each domain in the slice
 	for i, rec := range domains {
 		fmt.Printf("Checking domain: %s using WHOIS server: %s\n", rec.Domain, *whoisServer)
-		available, logDetails, err := checkDomainAvailability(rec.Domain, *whoisServer)
+
+		available, reason, logDetails, err := checkDomainAvailability(rec.Domain, *whoisServer)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error checking domain %s: %v\n", rec.Domain, err)
-			domains[i].Log = fmt.Sprintf("Error: %v", err)
 			domains[i].Available = false
+			domains[i].Reason = ReasonError
+			// Only store the log if verbose
+			if *verbose {
+				domains[i].Log = fmt.Sprintf("Error: %v", err)
+			} else {
+				domains[i].Log = ""
+			}
 		} else {
-			domains[i].Log = logDetails
 			domains[i].Available = available
+			domains[i].Reason = reason
+			if *verbose {
+				domains[i].Log = logDetails
+			} else {
+				domains[i].Log = ""
+			}
 			fmt.Printf("Domain %s available: %v\n", rec.Domain, available)
 		}
 
-		// Update the JSON file after checking the domain.
+		// Update the JSON file after checking the domain
 		updatedData, err := json.MarshalIndent(domains, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
@@ -113,7 +146,7 @@ func runCLI(args []string) int {
 			return 1
 		}
 
-		// Sleep for the specified duration before proceeding to the next domain.
+		// Sleep for the specified duration before proceeding to the next domain
 		time.Sleep(*sleepDelay)
 	}
 
