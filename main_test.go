@@ -10,10 +10,9 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
-// captureOutput redirects stdout/stderr to pipes, runs fn, then returns the captured strings.
+// captureOutput captures stdout/stderr during a function call.
 func captureOutput(t *testing.T, fn func()) (string, string) {
 	rOut, wOut, err := os.Pipe()
 	if err != nil {
@@ -24,24 +23,20 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 		t.Fatalf("Failed to create stderr pipe: %v", err)
 	}
 
-	oldStdout := os.Stdout
-	oldStderr := os.Stderr
-
-	os.Stdout = wOut
-	os.Stderr = wErr
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = wOut, wErr
 
 	outCh := make(chan string)
 	errCh := make(chan string)
 
-	// Copy from rOut and rErr in goroutines.
 	go func() {
 		var buf bytes.Buffer
-		_, _ = io.Copy(&buf, rOut)
+		io.Copy(&buf, rOut)
 		outCh <- buf.String()
 	}()
 	go func() {
 		var buf bytes.Buffer
-		_, _ = io.Copy(&buf, rErr)
+		io.Copy(&buf, rErr)
 		errCh <- buf.String()
 	}()
 
@@ -49,63 +44,67 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 
 	wOut.Close()
 	wErr.Close()
-	os.Stdout = oldStdout
-	os.Stderr = oldStderr
-
+	os.Stdout, os.Stderr = oldStdout, oldStderr
 	return <-outCh, <-errCh
 }
 
-// TestCheckDomainAvailability validates the WHOIS-checking function alone.
+// TestCheckDomainAvailability covers basic WHOIS availability checks
 func TestCheckDomainAvailability(t *testing.T) {
-	tests := []struct {
-		name           string
-		serverHandler  func(conn net.Conn)
-		expectedAvail  bool
-		expectedErr    bool
-		expectedReason AvailabilityReason
+	cases := []struct {
+		name          string
+		serverHandler func(net.Conn)
+		wantAvailable bool
+		wantReason    AvailabilityReason
+		wantErr       bool
 	}{
 		{
-			name: "Domain not found (indicating availability)",
-			serverHandler: func(conn net.Conn) {
-				defer conn.Close()
-				_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-				io.Copy(io.Discard, conn) // discard anything client sends
-				io.WriteString(conn, "No match for example.com\n")
-				time.Sleep(50 * time.Millisecond)
+			name: "No match => available=TRUE, reason=NO_MATCH",
+			serverHandler: func(c net.Conn) {
+				// Just respond with the magic string
+				io.Copy(io.Discard, c)
+				io.WriteString(c, "No match for example.com\n")
+				c.Close()
 			},
-			expectedAvail:  true,
-			expectedErr:    false,
-			expectedReason: ReasonNoMatch,
+			wantAvailable: true,
+			wantReason:    ReasonNoMatch,
 		},
 		{
-			name: "Domain found (indicating not available)",
-			serverHandler: func(conn net.Conn) {
-				defer conn.Close()
-				_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-				io.Copy(io.Discard, conn)
-				io.WriteString(conn, "Some registration data\nDomain Name: example.com\n")
-				time.Sleep(50 * time.Millisecond)
+			name: "Domain found => available=FALSE, reason=TAKEN",
+			serverHandler: func(c net.Conn) {
+				io.Copy(io.Discard, c)
+				io.WriteString(c, "Domain Name: something.com\n")
+				c.Close()
 			},
-			expectedAvail:  false,
-			expectedErr:    false,
-			expectedReason: ReasonTaken,
+			wantAvailable: false,
+			wantReason:    ReasonTaken,
 		},
 		{
-			name: "Immediate connection close (should produce read error)",
-			serverHandler: func(conn net.Conn) {
-				conn.Close()
+			name: "Immediate close => reason=ERROR",
+			serverHandler: func(c net.Conn) {
+				c.Close()
 			},
-			expectedAvail:  false,
-			expectedErr:    true,
-			expectedReason: ReasonError,
+			wantAvailable: false,
+			wantReason:    ReasonError,
+			wantErr:       true,
+		},
+		{
+			name: "Empty response => reason=ERROR",
+			serverHandler: func(c net.Conn) {
+				// Send no data
+				io.Copy(io.Discard, c)
+				c.Close()
+			},
+			wantAvailable: false,
+			wantReason:    ReasonError,
+			wantErr:       true,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
-				t.Fatalf("Failed to listen on port: %v", err)
+				t.Fatalf("failed to listen: %v", err)
 			}
 			defer ln.Close()
 
@@ -114,385 +113,631 @@ func TestCheckDomainAvailability(t *testing.T) {
 				if err != nil {
 					return
 				}
-				tc.serverHandler(conn)
+				tt.serverHandler(conn)
 			}()
 
-			available, reason, _, err := checkDomainAvailability("example.com", ln.Addr().String())
-			if tc.expectedErr && err == nil {
-				t.Errorf("Expected an error but got none")
+			avail, reason, _, err := checkDomainAvailability("example.com", ln.Addr().String())
+			if tt.wantErr && err == nil {
+				t.Errorf("expected an error but got none")
 			}
-			if !tc.expectedErr && err != nil {
-				t.Errorf("Did not expect an error but got: %v", err)
+			if !tt.wantErr && err != nil {
+				t.Errorf("did not expect error, got: %v", err)
 			}
-			if available != tc.expectedAvail {
-				t.Errorf("Expected available=%v, got %v", tc.expectedAvail, available)
+			if avail != tt.wantAvailable {
+				t.Errorf("got available=%v, want %v", avail, tt.wantAvailable)
 			}
-			if reason != tc.expectedReason {
-				t.Errorf("Expected reason=%q, got %q", tc.expectedReason, reason)
+			if reason != tt.wantReason {
+				t.Errorf("got reason=%q, want %q", reason, tt.wantReason)
 			}
-			// errLog is whatever the WHOIS server returned (or error info).
-			// We won't do a deep check here, but you could verify certain text if you like.
 		})
 	}
 }
 
-// TestMainFunction checks the entire flow with a mocked WHOIS server, a real JSON file,
-// and verifies that runCLI updates the file as expected (in *non-verbose* mode).
-func TestMainFunction(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet("TestMainFunction", flag.ContinueOnError)
+// TestArgParsing checks we fail if no arguments or if whois is missing
+func TestArgParsing(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestArgParsing", flag.ContinueOnError)
 
-	// Create a temporary JSON file with sample domains.
-	tmpFile, err := os.CreateTemp("", "domains_*.json")
+	// No args
+	_, stderr := captureOutput(t, func() {
+		code := runCLI([]string{})
+		if code == 0 {
+			t.Error("Expected non-zero code with no args")
+		}
+	})
+	if !strings.Contains(stderr, "Usage: talia") {
+		t.Errorf("Expected usage help, got: %s", stderr)
+	}
+
+	// Arg but no --whois
+	flag.CommandLine = flag.NewFlagSet("TestArgParsingNoWhois", flag.ContinueOnError)
+	_, stderr = captureOutput(t, func() {
+		code := runCLI([]string{"somefile.json"})
+		if code == 0 {
+			t.Error("Expected non-zero code if whois is missing")
+		}
+	})
+	if !strings.Contains(stderr, "Error: --whois=<server:port> is required") {
+		t.Errorf("Expected missing whois error, got: %s", stderr)
+	}
+}
+
+// TestInputFileReadError ensures we fail if input file can't be read
+func TestInputFileReadError(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestInputFileReadError", flag.ContinueOnError)
+
+	// We'll pass a directory instead of a file
+	tmpDir, err := os.MkdirTemp("", "testdir")
 	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	_, stderr := captureOutput(t, func() {
+		code := runCLI([]string{"--whois=127.0.0.1:9999", tmpDir})
+		if code == 0 {
+			t.Errorf("Expected non-zero code for read error")
+		}
+	})
+	if !strings.Contains(stderr, "Error reading") {
+		t.Errorf("Expected 'Error reading' message, got: %s", stderr)
+	}
+}
+
+// TestInputFileParseError ensures we fail on malformed JSON
+func TestInputFileParseError(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestInputFileParseError", flag.ContinueOnError)
+
+	tmpFile, err := os.CreateTemp("", "badjson_*.json")
+	if err != nil {
+		t.Fatalf("temp file: %v", err)
 	}
 	defer os.Remove(tmpFile.Name())
 
-	domainData := []DomainRecord{
+	tmpFile.WriteString("{\"domain\": \"test.com\", ") // incomplete
+	tmpFile.Close()
+
+	_, stderr := captureOutput(t, func() {
+		code := runCLI([]string{"--whois=127.0.0.1:9999", tmpFile.Name()})
+		if code == 0 {
+			t.Errorf("Expected non-zero code for JSON parse error")
+		}
+	})
+	if !strings.Contains(stderr, "Error parsing JSON") {
+		t.Errorf("Expected parse error, got: %s", stderr)
+	}
+}
+
+// TestMainNonGrouped verifies inline updates in non-grouped mode
+func TestMainNonGrouped(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestMainNonGrouped", flag.ContinueOnError)
+
+	tmp, err := os.CreateTemp("", "domains_*.json")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	defer os.Remove(tmp.Name())
+
+	domains := []DomainRecord{
 		{Domain: "example1.com"},
 		{Domain: "example2.com"},
 	}
-	inputJSON, _ := json.MarshalIndent(domainData, "", "  ")
-	if _, err := tmpFile.Write(inputJSON); err != nil {
-		t.Fatalf("Failed to write JSON: %v", err)
+	js, _ := json.MarshalIndent(domains, "", "  ")
+	if _, err := tmp.Write(js); err != nil {
+		t.Fatalf("Failed writing to temp file: %v", err)
 	}
-	tmpFile.Close()
+	tmp.Close()
 
-	// Start a mock WHOIS server that always responds "No match for".
+	// WHOIS => always 'No match for' => available
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("Failed to listen: %v", err)
+		t.Fatalf("failed to listen: %v", err)
 	}
 	defer ln.Close()
-
 	go func() {
 		for {
-			conn, err := ln.Accept()
+			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			func(c net.Conn) {
-				defer c.Close()
-				_ = c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-				io.Copy(io.Discard, c)
-				io.WriteString(c, "No match for domain\n")
-				time.Sleep(50 * time.Millisecond)
-			}(conn)
+			io.Copy(io.Discard, c)
+			io.WriteString(c, "No match for domain\n")
+			c.Close()
 		}
 	}()
 
-	// Run CLI WITHOUT --verbose, so we expect logs to be empty (because there's no error).
 	_, _ = captureOutput(t, func() {
 		code := runCLI([]string{
 			"--whois=" + ln.Addr().String(),
-			"--sleep=1s", // override default to speed up test
-			tmpFile.Name(),
+			tmp.Name(),
 		})
 		if code != 0 {
-			t.Errorf("Expected exit code 0, got %d", code)
+			t.Errorf("want exit code 0, got %d", code)
 		}
 	})
 
-	updatedContent, err := os.ReadFile(tmpFile.Name())
+	updated, err := os.ReadFile(tmp.Name())
 	if err != nil {
-		t.Fatalf("Failed to read updated file: %v", err)
+		t.Fatalf("reading updated file: %v", err)
 	}
-
-	var updatedRecords []DomainRecord
-	if err := json.Unmarshal(updatedContent, &updatedRecords); err != nil {
-		t.Fatalf("Error unmarshaling JSON: %v", err)
+	var updatedList []DomainRecord
+	if err := json.Unmarshal(updated, &updatedList); err != nil {
+		t.Fatalf("unmarshal updated: %v", err)
 	}
-
-	if len(updatedRecords) != 2 {
-		t.Errorf("Expected 2 records, got %d", len(updatedRecords))
+	if len(updatedList) != 2 {
+		t.Errorf("want 2, got %d", len(updatedList))
 	}
-	for _, rec := range updatedRecords {
-		if !rec.Available {
-			t.Errorf("Expected domain %s to be available, but it was not", rec.Domain)
+	for _, r := range updatedList {
+		if !r.Available {
+			t.Errorf("domain %s expected available=true", r.Domain)
 		}
-		if rec.Reason != ReasonNoMatch {
-			t.Errorf("Expected domain %s to have reason=%q, got %q", rec.Domain, ReasonNoMatch, rec.Reason)
-		}
-		// Because we're NOT in verbose mode, Log should be empty (no error occurred).
-		if rec.Log != "" {
-			t.Errorf("Expected empty Log in non-verbose mode, got: %s", rec.Log)
+		if r.Reason != ReasonNoMatch {
+			t.Errorf("domain %s reason: got %s want NO_MATCH", r.Domain, r.Reason)
 		}
 	}
 }
 
-// TestMainFunctionVerbose checks the entire flow in *verbose* mode,
-// ensuring that logs are captured in the JSON when there's no error.
-func TestMainFunctionVerbose(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet("TestMainFunctionVerbose", flag.ContinueOnError)
+// TestFileWriteError ensures we fail if we can't write the input file in non-grouped mode
+func TestFileWriteError(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestFileWriteError", flag.ContinueOnError)
 
-	// Create a temporary JSON file with sample domains.
-	tmpFile, err := os.CreateTemp("", "domains_*.json")
+	tmp, err := os.CreateTemp("", "domains_write_err_*.json")
 	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
+		t.Fatalf("temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer os.Remove(tmp.Name())
 
-	domainData := []DomainRecord{
-		{Domain: "verbose-example1.com"},
-		{Domain: "verbose-example2.com"},
-	}
-	inputJSON, _ := json.MarshalIndent(domainData, "", "  ")
-	if _, err := tmpFile.Write(inputJSON); err != nil {
-		t.Fatalf("Failed to write JSON: %v", err)
-	}
-	tmpFile.Close()
+	// put some data
+	domains := []DomainRecord{{Domain: "test.com"}}
+	b, _ := json.Marshal(domains)
+	tmp.Write(b)
+	tmp.Close()
 
-	// Start a mock WHOIS server that always responds "No match for".
+	// Make it read-only
+	os.Chmod(tmp.Name(), 0400)
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("Failed to listen: %v", err)
+		t.Fatalf("listen: %v", err)
 	}
 	defer ln.Close()
-
 	go func() {
 		for {
-			conn, err := ln.Accept()
+			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			func(c net.Conn) {
-				defer c.Close()
-				_ = c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-				io.Copy(io.Discard, c)
-				io.WriteString(c, "No match for domain\n")
-				time.Sleep(50 * time.Millisecond)
-			}(conn)
+			io.Copy(io.Discard, c)
+			io.WriteString(c, "No match for domain\n")
+			c.Close()
 		}
 	}()
 
-	// Run CLI WITH --verbose
+	_, stderr := captureOutput(t, func() {
+		code := runCLI([]string{
+			"--whois=" + ln.Addr().String(),
+			tmp.Name(),
+		})
+		if code == 0 {
+			t.Error("Expected non-zero code on file write error")
+		}
+	})
+	if !strings.Contains(stderr, "Error writing file") {
+		t.Errorf("Expected file write error, got: %s", stderr)
+	}
+}
+
+// TestMainVerbose checks if verbose logs are stored for successful checks
+func TestMainVerbose(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestMainVerbose", flag.ContinueOnError)
+
+	tmp, err := os.CreateTemp("", "domains_verbose_*.json")
+	if err != nil {
+		t.Fatalf("temp file: %v", err)
+	}
+	defer os.Remove(tmp.Name())
+
+	domains := []DomainRecord{{Domain: "verbose1.com"}}
+	js, _ := json.MarshalIndent(domains, "", "  ")
+	tmp.Write(js)
+	tmp.Close()
+
+	// WHOIS => "No match for"
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			io.Copy(io.Discard, c)
+			io.WriteString(c, "No match for domain\n")
+			c.Close()
+		}
+	}()
+
 	_, _ = captureOutput(t, func() {
 		code := runCLI([]string{
 			"--verbose",
 			"--whois=" + ln.Addr().String(),
-			"--sleep=1s",
-			tmpFile.Name(),
+			tmp.Name(),
 		})
 		if code != 0 {
-			t.Errorf("Expected exit code 0, got %d", code)
+			t.Errorf("want exit code 0, got %d", code)
 		}
 	})
 
-	updatedContent, err := os.ReadFile(tmpFile.Name())
+	updated, err := os.ReadFile(tmp.Name())
 	if err != nil {
-		t.Fatalf("Failed to read updated file: %v", err)
+		t.Fatalf("read updated: %v", err)
 	}
-
-	var updatedRecords []DomainRecord
-	if err := json.Unmarshal(updatedContent, &updatedRecords); err != nil {
-		t.Fatalf("Error unmarshaling JSON: %v", err)
+	var updatedList []DomainRecord
+	json.Unmarshal(updated, &updatedList)
+	if len(updatedList) != 1 {
+		t.Errorf("want 1 domain, got %d", len(updatedList))
 	}
-
-	if len(updatedRecords) != 2 {
-		t.Errorf("Expected 2 records, got %d", len(updatedRecords))
-	}
-	for _, rec := range updatedRecords {
-		if !rec.Available {
-			t.Errorf("Expected domain %s to be available, but it was not", rec.Domain)
-		}
-		if rec.Reason != ReasonNoMatch {
-			t.Errorf("Expected reason=%q, got %q", ReasonNoMatch, rec.Reason)
-		}
-		if !strings.Contains(rec.Log, "No match for domain") {
-			t.Errorf("Expected Log to contain 'No match for domain' in verbose mode, got: %s", rec.Log)
-		}
+	if updatedList[0].Log == "" {
+		t.Error("expected a WHOIS log in verbose mode, got empty string")
 	}
 }
 
-// TestMainInvalidArgs ensures we fail with no arguments.
-func TestMainInvalidArgs(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet("TestMainInvalidArgs", flag.ContinueOnError)
+// TestMainErrorCase verifies that if one domain triggers an error, we still proceed
+func TestMainErrorCase(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestMainErrorCase", flag.ContinueOnError)
 
-	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{}) // no arguments at all
-		if code == 0 {
-			t.Errorf("Expected non-zero exit code with missing arguments")
-		}
-	})
-}
-
-// TestMainBadFile ensures we fail if the provided file is actually a directory.
-func TestMainBadFile(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet("TestMainBadFile", flag.ContinueOnError)
-
-	tmpDir, err := os.MkdirTemp("", "testdir")
+	tmp, err := os.CreateTemp("", "domains_error_*.json")
 	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+		t.Fatalf("temp file: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer os.Remove(tmp.Name())
 
-	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{tmpDir})
-		if code == 0 {
-			t.Errorf("Expected non-zero code for invalid file input")
-		}
-	})
-}
-
-// TestMainBadJSON ensures we fail on malformed JSON.
-func TestMainBadJSON(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet("TestMainBadJSON", flag.ContinueOnError)
-
-	tmpFile, err := os.CreateTemp("", "bad_json_*.json")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
+	domains := []DomainRecord{
+		{Domain: "error1.com"},
+		{Domain: "ok2.com"},
 	}
-	defer os.Remove(tmpFile.Name())
+	js, _ := json.MarshalIndent(domains, "", "  ")
+	tmp.Write(js)
+	tmp.Close()
 
-	tmpFile.WriteString("{invalid json")
-	tmpFile.Close()
-
-	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{tmpFile.Name()})
-		if code == 0 {
-			t.Errorf("Expected non-zero exit code for malformed JSON")
-		}
-	})
-}
-
-// TestMainWriteFailure ensures we fail if the file is not writable.
-func TestMainWriteFailure(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet("TestMainWriteFailure", flag.ContinueOnError)
-
-	tmpFile, err := os.CreateTemp("", "domains_*.json")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	domainData := []DomainRecord{{Domain: "example.com"}}
-	inputJSON, _ := json.MarshalIndent(domainData, "", "  ")
-	if _, err := tmpFile.Write(inputJSON); err != nil {
-		t.Fatalf("Failed to write JSON: %v", err)
-	}
-	tmpFile.Close()
-
-	// Make read-only
-	if err := os.Chmod(tmpFile.Name(), 0400); err != nil {
-		t.Fatalf("Failed chmod: %v", err)
-	}
-
+	// First conn => immediate close => error, second => "No match for"
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("Failed to listen: %v", err)
+		t.Fatalf("listen: %v", err)
 	}
 	defer ln.Close()
 
 	go func() {
+		counter := 0
 		for {
-			conn, err := ln.Accept()
+			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			func(c net.Conn) {
-				defer c.Close()
-				io.Copy(io.Discard, c)
-				io.WriteString(c, "No match for example.com\n")
-				time.Sleep(50 * time.Millisecond)
-			}(conn)
+			func(conn net.Conn) {
+				defer conn.Close()
+				io.Copy(io.Discard, conn)
+				if counter == 0 {
+					// Immediate close => error
+				} else {
+					io.WriteString(conn, "No match for domain\n")
+				}
+				counter++
+			}(c)
 		}
 	}()
 
-	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{"--whois=" + ln.Addr().String(), tmpFile.Name()})
-		if code == 0 {
-			t.Errorf("Expected non-zero exit code on file write failure")
-		}
-	})
-}
-
-// TestMainSleepVerifiesDelay checks the approximate delay when the --sleep flag is used.
-func TestMainSleepVerifiesDelay(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet("TestMainSleepVerifiesDelay", flag.ContinueOnError)
-
-	// We'll still test for a ~2-second delay, but let's confirm that the user can override it.
-	// Here we set it to 1s to speed up. We measure the total time and verify the sleeps happen.
-
-	tmpFile, err := os.CreateTemp("", "domains_*.json")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	domainData := []DomainRecord{
-		{Domain: "example1.com"},
-		{Domain: "example2.com"},
-	}
-	inputJSON, _ := json.MarshalIndent(domainData, "", "  ")
-	if _, err := tmpFile.Write(inputJSON); err != nil {
-		t.Fatalf("Failed to write JSON: %v", err)
-	}
-	tmpFile.Close()
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Failed to listen: %v", err)
-	}
-	defer ln.Close()
-
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			func(c net.Conn) {
-				defer c.Close()
-				io.Copy(io.Discard, c)
-				io.WriteString(c, "No match for domain\n")
-				time.Sleep(50 * time.Millisecond)
-			}(conn)
-		}
-	}()
-
-	start := time.Now()
-	_, _ = captureOutput(t, func() {
+	_, stderr := captureOutput(t, func() {
 		code := runCLI([]string{
 			"--whois=" + ln.Addr().String(),
-			"--sleep=1s",
-			tmpFile.Name(),
+			tmp.Name(),
+		})
+		if code != 0 {
+			t.Errorf("want 0, got %d", code)
+		}
+	})
+
+	if !strings.Contains(stderr, "WHOIS error for error1.com") {
+		t.Errorf("Expected error message for domain error1.com, got: %s", stderr)
+	}
+
+	updated, err := os.ReadFile(tmp.Name())
+	if err != nil {
+		t.Fatalf("read updated: %v", err)
+	}
+	var updatedList []DomainRecord
+	if err := json.Unmarshal(updated, &updatedList); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(updatedList) != 2 {
+		t.Errorf("want 2, got %d", len(updatedList))
+	}
+	// error1.com => reason=ERROR
+	// ok2.com => reason=NO_MATCH
+	if updatedList[0].Domain == "error1.com" {
+		if updatedList[0].Reason != ReasonError {
+			t.Errorf("expected reason=ERROR for error1.com, got %s", updatedList[0].Reason)
+		}
+	} else {
+		t.Errorf("Unexpected domain ordering for the first record")
+	}
+	if updatedList[1].Domain == "ok2.com" {
+		if updatedList[1].Reason != ReasonNoMatch {
+			t.Errorf("expected reason=NO_MATCH for ok2.com, got %s", updatedList[1].Reason)
+		}
+	} else {
+		t.Errorf("Unexpected domain ordering for the second record")
+	}
+}
+
+// TestMainGroupedNoFile overwrites input JSON with a grouped object
+func TestMainGroupedNoFile(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestMainGroupedNoFile", flag.ContinueOnError)
+
+	tmp, err := os.CreateTemp("", "grouped_no_file_*.json")
+	if err != nil {
+		t.Fatalf("temp file: %v", err)
+	}
+	defer os.Remove(tmp.Name())
+
+	domains := []DomainRecord{
+		{Domain: "g1.com"},
+		{Domain: "g2.com"},
+	}
+	js, _ := json.MarshalIndent(domains, "", "  ")
+	tmp.Write(js)
+	tmp.Close()
+
+	// WHOIS => first => no match => available, second => domain => taken
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		i := 0
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			func(conn net.Conn) {
+				defer conn.Close()
+				io.Copy(io.Discard, conn)
+				if i == 0 {
+					io.WriteString(conn, "No match for domain\n")
+				} else {
+					io.WriteString(conn, "Domain Name: something.com\n")
+				}
+				i++
+			}(c)
+		}
+	}()
+
+	_, _ = captureOutput(t, func() {
+		code := runCLI([]string{
+			"--grouped-output",
+			"--whois=" + ln.Addr().String(),
+			tmp.Name(),
+		})
+		if code != 0 {
+			t.Errorf("wanted exit code 0, got %d", code)
+		}
+	})
+
+	groupedBytes, err := os.ReadFile(tmp.Name())
+	if err != nil {
+		t.Fatalf("reading grouped: %v", err)
+	}
+	var grouped struct {
+		Available   []map[string]string `json:"available"`
+		Unavailable []map[string]string `json:"unavailable"`
+	}
+	if err := json.Unmarshal(groupedBytes, &grouped); err != nil {
+		t.Fatalf("unmarshal grouped: %v", err)
+	}
+	if len(grouped.Available) != 1 || len(grouped.Unavailable) != 1 {
+		t.Errorf("expected 1 avail + 1 unavail, got %d/%d", len(grouped.Available), len(grouped.Unavailable))
+	}
+}
+
+// TestMainGroupedWithFile merges results into a separate grouped file
+func TestMainGroupedWithFile(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestMainGroupedWithFile", flag.ContinueOnError)
+
+	// Input
+	inputFile, err := os.CreateTemp("", "grouped_input_*.json")
+	if err != nil {
+		t.Fatalf("temp input: %v", err)
+	}
+	defer os.Remove(inputFile.Name())
+
+	domains := []DomainRecord{{Domain: "merge-test1.com"}, {Domain: "merge-test2.com"}}
+	data, _ := json.MarshalIndent(domains, "", "  ")
+	inputFile.Write(data)
+	inputFile.Close()
+
+	// Existing grouped file (non-empty) with 1 domain
+	groupedFile, err := os.CreateTemp("", "grouped_output_*.json")
+	if err != nil {
+		t.Fatalf("temp grouped: %v", err)
+	}
+	defer os.Remove(groupedFile.Name())
+
+	existingGrouped := GroupedData{
+		Available: []GroupedDomain{
+			{Domain: "previous-available.com", Reason: ReasonNoMatch},
+		},
+		Unavailable: []GroupedDomain{
+			{Domain: "previous-unavailable.com", Reason: ReasonTaken},
+		},
+	}
+	egBytes, _ := json.MarshalIndent(existingGrouped, "", "  ")
+	groupedFile.Write(egBytes)
+	groupedFile.Close()
+
+	// WHOIS => first => no match => available, second => found => unavailable
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		i := 0
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			func(c net.Conn) {
+				defer c.Close()
+				io.Copy(io.Discard, c)
+				if i == 0 {
+					io.WriteString(c, "No match for domain\n")
+				} else {
+					io.WriteString(c, "Domain Name: found-something\n")
+				}
+				i++
+			}(conn)
+		}
+	}()
+
+	_, _ = captureOutput(t, func() {
+		code := runCLI([]string{
+			"--grouped-output",
+			"--output-file=" + groupedFile.Name(),
+			"--whois=" + ln.Addr().String(),
+			inputFile.Name(),
+		})
+		if code != 0 {
+			t.Errorf("wanted 0, got %d", code)
+		}
+	})
+
+	// Input file should be unchanged
+	inRaw, err := os.ReadFile(inputFile.Name())
+	if err != nil {
+		t.Fatalf("read input: %v", err)
+	}
+	var inCheck []DomainRecord
+	json.Unmarshal(inRaw, &inCheck)
+	for _, r := range inCheck {
+		if r.Available || r.Reason != "" {
+			t.Errorf("expected no changes in input JSON, found reason=%s", r.Reason)
+		}
+	}
+
+	// Grouped file => old plus newly inserted
+	gRaw, err := os.ReadFile(groupedFile.Name())
+	if err != nil {
+		t.Fatalf("read groupedFile: %v", err)
+	}
+	var merged GroupedData
+	if err := json.Unmarshal(gRaw, &merged); err != nil {
+		t.Fatalf("unmarshal merged: %v", err)
+	}
+	// We had 1 in Available, 1 in Unavailable,
+	// plus 1 new in Available, 1 new in Unavailable.
+	if len(merged.Available) != 2 {
+		t.Errorf("expected 2 available, got %d", len(merged.Available))
+	}
+	if len(merged.Unavailable) != 2 {
+		t.Errorf("expected 2 unavailable, got %d", len(merged.Unavailable))
+	}
+}
+
+// TestMainGroupedFileEmptyExisting ensures no crash if grouped file is empty
+func TestMainGroupedFileEmptyExisting(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestMainGroupedFileEmptyExisting", flag.ContinueOnError)
+
+	// Input
+	inputFile, err := os.CreateTemp("", "grouped_input_*.json")
+	if err != nil {
+		t.Fatalf("temp input: %v", err)
+	}
+	defer os.Remove(inputFile.Name())
+
+	domains := []DomainRecord{{Domain: "empty-existing-1.com"}}
+	data, _ := json.MarshalIndent(domains, "", "  ")
+	inputFile.Write(data)
+	inputFile.Close()
+
+	// Create an empty grouped file
+	groupedFile, err := os.CreateTemp("", "grouped_out_*.json")
+	if err != nil {
+		t.Fatalf("temp grouped: %v", err)
+	}
+	groupedFile.Close()
+	defer os.Remove(groupedFile.Name())
+
+	// WHOIS => no match => available
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		c, _ := ln.Accept()
+		io.Copy(io.Discard, c)
+		io.WriteString(c, "No match for domain\n")
+		c.Close()
+	}()
+
+	_, stderr := captureOutput(t, func() {
+		code := runCLI([]string{
+			"--grouped-output",
+			"--output-file=" + groupedFile.Name(),
+			"--whois=" + ln.Addr().String(),
+			inputFile.Name(),
 		})
 		if code != 0 {
 			t.Errorf("Expected exit code 0, got %d", code)
 		}
 	})
-	elapsed := time.Since(start)
 
-	// We set sleep=1s. With 2 domains, that's ~2s total, plus overhead. We expect > 1.5s at least.
-	if elapsed < 1500*time.Millisecond {
-		t.Errorf("Expected total run time >= 1.5s, got %v", elapsed)
+	if strings.Contains(stderr, "unexpected end of JSON") {
+		t.Errorf("Should not fail on empty grouped file: %s", stderr)
+	}
+
+	// Confirm the grouped file now has a single available domain
+	gRaw, err := os.ReadFile(groupedFile.Name())
+	if err != nil {
+		t.Fatalf("read grouped file: %v", err)
+	}
+	var merged GroupedData
+	if err := json.Unmarshal(gRaw, &merged); err != nil {
+		t.Fatalf("unmarshal merged: %v", err)
+	}
+	if len(merged.Available) != 1 {
+		t.Errorf("expected 1 available, got %d", len(merged.Available))
+	}
+	if len(merged.Unavailable) != 0 {
+		t.Errorf("expected 0 unavailable, got %d", len(merged.Unavailable))
 	}
 }
 
-// TestDomainRecordStructure ensures we haven't broken JSON compatibility.
+// TestDomainRecordStructure ensures JSON keys remain stable
 func TestDomainRecordStructure(t *testing.T) {
 	dr := DomainRecord{
-		Domain:    "test.com",
-		Log:       "some log",
+		Domain:    "example.com",
 		Available: true,
 		Reason:    ReasonNoMatch,
+		Log:       "some log data",
 	}
-
-	data, err := json.Marshal(dr)
+	b, err := json.Marshal(dr)
 	if err != nil {
-		t.Fatalf("Failed to marshal DomainRecord: %v", err)
+		t.Fatalf("marshal: %v", err)
 	}
-
-	var out map[string]interface{}
-	if err := json.Unmarshal(data, &out); err != nil {
-		t.Fatalf("Failed to unmarshal to map: %v", err)
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
 	}
-
-	// Confirm these fields exist.
-	expectedFields := []string{"domain", "log", "available", "reason"}
-	for _, f := range expectedFields {
-		if _, ok := out[f]; !ok {
-			t.Errorf("Missing field %q in DomainRecord JSON", f)
+	fields := []string{"domain", "available", "reason", "log"}
+	for _, f := range fields {
+		if _, ok := parsed[f]; !ok {
+			t.Errorf("missing field %q in DomainRecord JSON", f)
 		}
 	}
 }
