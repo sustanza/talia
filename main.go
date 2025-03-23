@@ -31,10 +31,12 @@ type DomainRecord struct {
 	Log       string             `json:"log,omitempty"`
 }
 
-// GroupedDomain is a minimal record for grouped output: domain & reason only.
+// GroupedDomain is a minimal record for grouped output.
+// We now include a Log field as well, so logs can be preserved in grouped mode.
 type GroupedDomain struct {
 	Domain string             `json:"domain"`
 	Reason AvailabilityReason `json:"reason"`
+	Log    string             `json:"log,omitempty"`
 }
 
 // GroupedData is the top-level object for grouped JSON. It has two arrays:
@@ -42,6 +44,14 @@ type GroupedDomain struct {
 type GroupedData struct {
 	Available   []GroupedDomain `json:"available"`
 	Unavailable []GroupedDomain `json:"unavailable"`
+}
+
+// ExtendedGroupedData represents a grouped JSON file that may also contain
+// an `unverified` list of domain records waiting to be checked.
+type ExtendedGroupedData struct {
+	Available   []GroupedDomain `json:"available,omitempty"`
+	Unavailable []GroupedDomain `json:"unavailable,omitempty"`
+	Unverified  []DomainRecord  `json:"unverified,omitempty"`
 }
 
 // checkDomainAvailability queries the WHOIS server for a single domain.
@@ -77,59 +87,93 @@ func checkDomainAvailability(domain, server string) (bool, AvailabilityReason, s
 
 // mergeGrouped merges new grouped results into existing grouped data, deduplicating by domain.
 func mergeGrouped(existing, newest GroupedData) GroupedData {
-	domainsAvail := make(map[string]AvailabilityReason)
+	// We'll track domain -> GroupedDomain instead of domain->reason
+	// so we can preserve logs if needed.
+	domainsAvail := make(map[string]GroupedDomain)
 	for _, gd := range existing.Available {
-		domainsAvail[gd.Domain] = gd.Reason
+		domainsAvail[gd.Domain] = gd
 	}
-	domainsUnavail := make(map[string]AvailabilityReason)
+	domainsUnavail := make(map[string]GroupedDomain)
 	for _, gd := range existing.Unavailable {
-		domainsUnavail[gd.Domain] = gd.Reason
+		domainsUnavail[gd.Domain] = gd
 	}
 
 	// Insert or update from newest
 	for _, gd := range newest.Available {
-		domainsAvail[gd.Domain] = gd.Reason
+		domainsAvail[gd.Domain] = gd
 		// If it was in unavail, remove it
 		delete(domainsUnavail, gd.Domain)
 	}
 	for _, gd := range newest.Unavailable {
-		domainsUnavail[gd.Domain] = gd.Reason
+		domainsUnavail[gd.Domain] = gd
 		// If it was in avail, remove it
 		delete(domainsAvail, gd.Domain)
 	}
 
 	// Rebuild arrays
 	out := GroupedData{}
-	for d, r := range domainsAvail {
-		out.Available = append(out.Available, GroupedDomain{Domain: d, Reason: r})
+	for _, rec := range domainsAvail {
+		out.Available = append(out.Available, rec)
 	}
-	for d, r := range domainsUnavail {
-		out.Unavailable = append(out.Unavailable, GroupedDomain{Domain: d, Reason: r})
+	for _, rec := range domainsUnavail {
+		out.Unavailable = append(out.Unavailable, rec)
 	}
 	return out
 }
 
+// convertArrayToGrouped turns an array of DomainRecord into GroupedData.
+// Useful if the existing file is a plain array instead of an object.
+func convertArrayToGrouped(arr []DomainRecord) GroupedData {
+	var gd GroupedData
+	for _, rec := range arr {
+		gDom := GroupedDomain{
+			Domain: rec.Domain,
+			Reason: rec.Reason,
+		}
+		// If the record has Available=true, put it in "available";
+		// otherwise put it in "unavailable". We can also carry over logs if needed.
+		gDom.Log = rec.Log
+
+		if rec.Available {
+			gd.Available = append(gd.Available, gDom)
+		} else {
+			gd.Unavailable = append(gd.Unavailable, gDom)
+		}
+	}
+	return gd
+}
+
 // writeGroupedFile reads an existing grouped JSON (if any), merges new data, and writes back.
+// If the existing file is an array (plain DomainRecord[]), we convert it to grouped before merging.
 func writeGroupedFile(path string, newest GroupedData) error {
 	if path == "" {
 		return nil
 	}
 
-	// Read existing if it exists
 	existing := GroupedData{}
+
+	// If the file exists and is not empty, parse it.
 	info, err := os.Stat(path)
 	if err == nil && info.Size() > 0 {
-		// File exists, non-empty
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read grouped file: %w", err)
 		}
+
+		// First try to parse as GroupedData
 		if err := json.Unmarshal(raw, &existing); err != nil {
-			return fmt.Errorf("parse grouped file: %w", err)
+			// If that fails, try parse as an array of DomainRecord
+			var arr []DomainRecord
+			if err2 := json.Unmarshal(raw, &arr); err2 == nil {
+				// Convert array to grouped
+				existing = convertArrayToGrouped(arr)
+			} else {
+				// If both attempts fail, return the original parse error
+				return fmt.Errorf("parse grouped file: %w", err)
+			}
 		}
 	}
 
-	// Merge
 	merged := mergeGrouped(existing, newest)
 	out, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
@@ -149,6 +193,176 @@ func replaceDomain(domains []DomainRecord, rec DomainRecord) {
 			return
 		}
 	}
+}
+
+// runCLIDomainArray handles the original array input logic (non-grouped or grouped output).
+func runCLIDomainArray(
+	whoisServer, inputPath string,
+	domains []DomainRecord,
+	sleep time.Duration,
+	verbose, groupedOutput bool,
+	outputFile string,
+) int {
+	groupedData := GroupedData{}
+
+	for _, rec := range domains {
+		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
+
+		avail, reason, logData, err := checkDomainAvailability(rec.Domain, whoisServer)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", rec.Domain, err)
+			avail = false
+			reason = ReasonError
+			logData = fmt.Sprintf("Error: %v", err)
+		}
+
+		if !groupedOutput {
+			// =========== Non-Grouped Mode ===========
+			rec.Available = avail
+			rec.Reason = reason
+			if verbose || reason == ReasonError {
+				rec.Log = logData
+			} else {
+				rec.Log = ""
+			}
+			replaceDomain(domains, rec)
+
+			// Write the updated array back to the same file after each domain
+			out, err := json.MarshalIndent(domains, "", "  ")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
+				return 1
+			}
+			if err := os.WriteFile(inputPath, out, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
+				return 1
+			}
+
+		} else {
+			// =========== Grouped Mode ===========
+			// We gather minimal domain+reason in the appropriate bucket
+			gd := GroupedDomain{
+				Domain: rec.Domain,
+				Reason: reason,
+			}
+			if verbose || reason == ReasonError {
+				gd.Log = logData
+			}
+
+			if avail {
+				groupedData.Available = append(groupedData.Available, gd)
+			} else {
+				groupedData.Unavailable = append(groupedData.Unavailable, gd)
+			}
+		}
+
+		time.Sleep(sleep)
+	}
+
+	// Now handle final grouped output if we used --grouped-output
+	if groupedOutput {
+		if outputFile == "" {
+			// Overwrite input file with { "available": [...], "unavailable": [...] }
+			mergedOut, err := json.MarshalIndent(groupedData, "", "  ")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
+				return 1
+			}
+			if err := os.WriteFile(inputPath, mergedOut, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", inputPath, err)
+				return 1
+			}
+			fmt.Println("Processing complete in grouped-output mode (overwrote input).")
+		} else {
+			if err := writeGroupedFile(outputFile, groupedData); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing grouped file: %v\n", err)
+				return 1
+			}
+			fmt.Println("Processing complete in grouped-output mode (wrote to separate file).")
+		}
+
+	} else {
+		// Non-grouped mode
+		fmt.Println("Processing complete. Updated file:", inputPath)
+	}
+
+	return 0
+}
+
+// runCLIGroupedInput handles input that's already in the grouped JSON format with unverified domains
+func runCLIGroupedInput(
+	whoisServer, inputPath string,
+	ext ExtendedGroupedData,
+	sleep time.Duration,
+	verbose, groupedOutput bool,
+	outputFile string,
+) int {
+	// If groupedOutput was NOT specified, we force it here
+	// because we're dealing with a grouped input (with unverified).
+	finalOutputFile := outputFile
+	if !groupedOutput || outputFile == "" {
+		finalOutputFile = inputPath
+	}
+
+	// Initialize arrays if they're nil to avoid nil slice errors
+	if ext.Available == nil {
+		ext.Available = []GroupedDomain{}
+	}
+	if ext.Unavailable == nil {
+		ext.Unavailable = []GroupedDomain{}
+	}
+
+	// We'll do whois checks on the "unverified" array.
+	for _, rec := range ext.Unverified {
+		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
+
+		avail, reason, logData, err := checkDomainAvailability(rec.Domain, whoisServer)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", rec.Domain, err)
+			avail = false
+			reason = ReasonError
+			logData = fmt.Sprintf("Error: %v", err)
+		}
+
+		gd := GroupedDomain{
+			Domain: rec.Domain,
+			Reason: reason,
+		}
+		if verbose || reason == ReasonError {
+			gd.Log = logData
+		}
+
+		if avail {
+			ext.Available = append(ext.Available, gd)
+		} else {
+			ext.Unavailable = append(ext.Unavailable, gd)
+		}
+
+		time.Sleep(sleep)
+	}
+
+	// Clear out unverified after we finish checking
+	ext.Unverified = nil
+
+	// Now ext has updated available/unavailable with the newly-checked domains.
+	// We simply write it out as grouped JSON.
+	out, err := json.MarshalIndent(ext, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
+		return 1
+	}
+	if err := os.WriteFile(finalOutputFile, out, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", finalOutputFile, err)
+		return 1
+	}
+
+	if finalOutputFile == inputPath {
+		fmt.Println("Processed grouped input (with unverified) and overwrote original file.")
+	} else {
+		fmt.Println("Processed grouped input (with unverified) and wrote results to:", finalOutputFile)
+	}
+
+	return 0
 }
 
 // runCLI is the main entry point for Talia logic.
@@ -181,92 +395,24 @@ func runCLI(args []string) int {
 		return 1
 	}
 
-	// We'll parse the input as a slice of DomainRecord for non-grouped updates,
-	// but we only use it fully if we're in non-grouped mode or grouped-without-output-file.
+	// Attempt to parse input as a simple array of DomainRecord.
 	var domains []DomainRecord
-	if err := json.Unmarshal(raw, &domains); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing JSON in %s: %v\n", inputPath, err)
-		return 1
+	err = json.Unmarshal(raw, &domains)
+	if err == nil {
+		// SUCCESS: We have a plain slice of domain records.
+		return runCLIDomainArray(*whoisServer, inputPath, domains, *sleep, *verbose, *groupedOutput, *outputFile)
 	}
 
-	// We accumulate grouped results if needed
-	groupedData := GroupedData{}
-
-	for _, rec := range domains {
-		fmt.Printf("Checking %s on %s\n", rec.Domain, *whoisServer)
-		avail, reason, logData, err := checkDomainAvailability(rec.Domain, *whoisServer)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", rec.Domain, err)
-			avail = false
-			reason = ReasonError
-			logData = fmt.Sprintf("Error: %v", err)
-		}
-
-		if !*groupedOutput {
-			// =========== Non-Grouped Mode ===========
-			rec.Available = avail
-			rec.Reason = reason
-			if *verbose || reason == ReasonError {
-				rec.Log = logData
-			} else {
-				rec.Log = ""
-			}
-			replaceDomain(domains, rec)
-
-			// Write the updated array back to the same file after each domain
-			out, err := json.MarshalIndent(domains, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
-				return 1
-			}
-			if err := os.WriteFile(inputPath, out, 0644); err != nil {
-				fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
-				return 1
-			}
-
-		} else {
-			// =========== Grouped Mode ===========
-			// We gather minimal domain+reason in the appropriate bucket
-			gd := GroupedDomain{Domain: rec.Domain, Reason: reason}
-			if avail {
-				groupedData.Available = append(groupedData.Available, gd)
-			} else {
-				groupedData.Unavailable = append(groupedData.Unavailable, gd)
-			}
-		}
-
-		time.Sleep(*sleep)
+	// If that fails, try to parse as a grouped JSON that might contain unverified.
+	var ext ExtendedGroupedData
+	if err2 := json.Unmarshal(raw, &ext); err2 == nil {
+		// We treat this as "grouped input" with possibly some unverified records.
+		return runCLIGroupedInput(*whoisServer, inputPath, ext, *sleep, *verbose, *groupedOutput, *outputFile)
 	}
 
-	// Now handle final grouped output if we used --grouped-output
-	if *groupedOutput {
-		if *outputFile == "" {
-			// Overwrite input file with { "available": [...], "unavailable": [...] }
-			mergedOut, err := json.MarshalIndent(groupedData, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
-				return 1
-			}
-			if err := os.WriteFile(inputPath, mergedOut, 0644); err != nil {
-				fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", inputPath, err)
-				return 1
-			}
-			fmt.Println("Processing complete in grouped-output mode (overwrote input).")
-		} else {
-			// Write or merge to the specified output file
-			if err := writeGroupedFile(*outputFile, groupedData); err != nil {
-				fmt.Fprintf(os.Stderr, "Error writing grouped file: %v\n", err)
-				return 1
-			}
-			fmt.Println("Processing complete in grouped-output mode (wrote to separate file).")
-		}
-
-	} else {
-		// Non-grouped mode
-		fmt.Println("Processing complete. Updated file:", inputPath)
-	}
-
-	return 0
+	// If both fail, then it's truly invalid JSON or an unexpected format.
+	fmt.Fprintf(os.Stderr, "Error parsing JSON in %s: %v\n", inputPath, err)
+	return 1
 }
 
 func main() {

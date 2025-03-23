@@ -60,7 +60,6 @@ func TestCheckDomainAvailability(t *testing.T) {
 		{
 			name: "No match => available=TRUE, reason=NO_MATCH",
 			serverHandler: func(c net.Conn) {
-				// Just respond with the magic string
 				io.Copy(io.Discard, c)
 				io.WriteString(c, "No match for example.com\n")
 				c.Close()
@@ -739,5 +738,225 @@ func TestDomainRecordStructure(t *testing.T) {
 		if _, ok := parsed[f]; !ok {
 			t.Errorf("missing field %q in DomainRecord JSON", f)
 		}
+	}
+}
+
+// TestMainGroupedFileRepeatedAppend tests that we can append multiple times to the same grouped file
+func TestMainGroupedFileRepeatedAppend(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestMainGroupedFileRepeatedAppend", flag.ContinueOnError)
+
+	// 1. Create input: a plain domain list
+	inputFile, err := os.CreateTemp("", "repeated_input_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(inputFile.Name())
+
+	doms := []DomainRecord{
+		{Domain: "append-1.com"},
+		{Domain: "append-2.com"},
+	}
+	b, _ := json.Marshal(doms)
+	inputFile.Write(b)
+	inputFile.Close()
+
+	// 2. Create/initialize an output grouped file
+	groupedFile, err := os.CreateTemp("", "repeated_output_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(groupedFile.Name())
+
+	gf := GroupedData{
+		Available: []GroupedDomain{},
+		Unavailable: []GroupedDomain{
+			{Domain: "some-old-unavailable.com", Reason: ReasonTaken},
+		},
+	}
+	gfBytes, _ := json.MarshalIndent(gf, "", "  ")
+	groupedFile.Write(gfBytes)
+	groupedFile.Close()
+
+	// 3. Start a mock WHOIS server
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		// We'll alternate: first domain => no match => available
+		// second => found => taken
+		i := 0
+		for {
+			c, e := ln.Accept()
+			if e != nil {
+				return
+			}
+			io.Copy(io.Discard, c)
+			if i%2 == 0 {
+				io.WriteString(c, "No match for domain\n")
+			} else {
+				io.WriteString(c, "Domain Name: found-it\n")
+			}
+			c.Close()
+			i++
+		}
+	}()
+
+	// 4. Run Talia with --grouped-output and the same groupedFile a first time
+	_, _ = captureOutput(t, func() {
+		exitCodeFirst := runCLI([]string{
+			"--grouped-output",
+			"--output-file=" + groupedFile.Name(),
+			"--whois=" + ln.Addr().String(),
+			inputFile.Name(),
+		})
+		if exitCodeFirst != 0 {
+			t.Fatalf("First runCLI failed with code=%d", exitCodeFirst)
+		}
+	})
+
+	// 5. Re-run with the same EXACT input
+	_, _ = captureOutput(t, func() {
+		exitCodeSecond := runCLI([]string{
+			"--grouped-output",
+			"--output-file=" + groupedFile.Name(),
+			"--whois=" + ln.Addr().String(),
+			inputFile.Name(),
+		})
+		if exitCodeSecond != 0 {
+			t.Fatalf("Second runCLI failed with code=%d", exitCodeSecond)
+		}
+	})
+
+	// 6. Inspect the grouped file
+	mergedBytes, _ := os.ReadFile(groupedFile.Name())
+	var final GroupedData
+	if err := json.Unmarshal(mergedBytes, &final); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(final.Available) < 1 || len(final.Unavailable) < 2 {
+		t.Errorf("Expected domains in available/unavailable after repeated merges, got %d/%d",
+			len(final.Available), len(final.Unavailable))
+	}
+
+	// Check if the original unavailable domain is still there
+	var foundOriginal bool
+	for _, d := range final.Unavailable {
+		if d.Domain == "some-old-unavailable.com" {
+			foundOriginal = true
+			break
+		}
+	}
+	if !foundOriginal {
+		t.Error("Original unavailable domain was lost during merges")
+	}
+}
+
+// TestMainGroupedFileWithUnverifiedInput tests using a grouped file with unverified domains as input
+func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestMainGroupedFileWithUnverifiedInput", flag.ContinueOnError)
+
+	// We'll build a grouped JSON with a few unverified domains
+	g := ExtendedGroupedData{
+		Available: []GroupedDomain{
+			{Domain: "old-avail.com", Reason: ReasonNoMatch},
+		},
+		Unavailable: []GroupedDomain{
+			{Domain: "old-unavail.com", Reason: ReasonTaken},
+		},
+		Unverified: []DomainRecord{
+			{Domain: "check-me-1.com"},
+			{Domain: "check-me-2.com"},
+		},
+	}
+	raw, _ := json.MarshalIndent(g, "", "  ")
+
+	// Write it to a temp file
+	inputFile, err := os.CreateTemp("", "grouped_unverified_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(inputFile.Name())
+	inputFile.Write(raw)
+	inputFile.Close()
+
+	// Start WHOIS server that returns "No match for" for one domain and
+	// "Domain Name:" for the other.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		i := 0
+		for {
+			c, e := ln.Accept()
+			if e != nil {
+				return
+			}
+			io.Copy(io.Discard, c)
+			if i%2 == 0 {
+				io.WriteString(c, "No match for domain\n")
+			} else {
+				io.WriteString(c, "Domain Name: found-something\n")
+			}
+			c.Close()
+			i++
+		}
+	}()
+
+	_, _ = captureOutput(t, func() {
+		exitCode := runCLI([]string{
+			"--grouped-output",
+			"--whois=" + ln.Addr().String(),
+			inputFile.Name(),
+		})
+		if exitCode != 0 {
+			t.Fatalf("runCLI failed with code=%d", exitCode)
+		}
+	})
+
+	// Now read back the file, it should have no unverified, and the 2 domains
+	// should be moved into available/unavailable.
+	updatedBytes, _ := os.ReadFile(inputFile.Name())
+	var updated ExtendedGroupedData
+	if err := json.Unmarshal(updatedBytes, &updated); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(updated.Unverified) != 0 {
+		t.Errorf("Expected unverified to be empty after checking, got %d", len(updated.Unverified))
+	}
+
+	// We had 1 domain that was "No match for" => available
+	// And 1 domain "Domain Name:" => unavailable
+	// plus the old ones
+	if len(updated.Available) != 2 {
+		t.Errorf("Expected 2 in available, got %d", len(updated.Available))
+	}
+	if len(updated.Unavailable) != 2 {
+		t.Errorf("Expected 2 in unavailable, got %d", len(updated.Unavailable))
+	}
+
+	// Check if the original domains are still there
+	var foundOldAvail, foundOldUnavail bool
+	for _, d := range updated.Available {
+		if d.Domain == "old-avail.com" {
+			foundOldAvail = true
+			break
+		}
+	}
+	for _, d := range updated.Unavailable {
+		if d.Domain == "old-unavail.com" {
+			foundOldUnavail = true
+			break
+		}
+	}
+	if !foundOldAvail || !foundOldUnavail {
+		t.Error("Original domains were lost during processing")
 	}
 }

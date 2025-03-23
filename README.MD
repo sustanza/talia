@@ -14,6 +14,7 @@ Talia is a lightweight command-line application for checking the availability of
   - [Optional Sleep Flag](#optional-sleep-flag)
   - [Verbose Mode](#verbose-mode)
   - [Grouped Output](#grouped-output)
+  - [Unverified Domains in Grouped Files](#unverified-domains-in-grouped-files)
 - [How It Works](#how-it-works)
 - [Testing](#testing)
 - [Configuration](#configuration)
@@ -24,7 +25,7 @@ Talia is a lightweight command-line application for checking the availability of
 
 ## Overview
 
-Talia reads a list of domains from a JSON file and connects to a **user-specified** WHOIS server to check each domain’s availability. After each check, Talia can:
+Talia reads a list of domains from a JSON file and connects to a **user-specified** WHOIS server to check each domain's availability. After each check, Talia can:
 
 1. **Non-grouped mode (default)**:  
    Talia updates the **original file** in an array format, for example:
@@ -114,6 +115,8 @@ Your JSON file should be an array of objects, each having a `"domain"` field, e.
       { "domain": "vetterhub.com" }
     ]
 
+Alternatively, you can now use a grouped file with an `"unverified"` array as input (see [Unverified Domains in Grouped Files](#unverified-domains-in-grouped-files)).
+
 ### Domain Checks and Rate Limiting
 
 By default, Talia sleeps 2 seconds (`--sleep=2s`) between each domain WHOIS query to reduce server load. You can override this with:
@@ -126,7 +129,7 @@ As shown above, `--sleep` changes how long Talia waits between domain checks.
 
 ### Verbose Mode
 
-By default, Talia only writes the WHOIS response to the `"log"` field if there’s an error. If you set `--verbose`, Talia stores the full WHOIS response for every domain:
+By default, Talia only writes the WHOIS response to the `"log"` field if there's an error. If you set `--verbose`, Talia stores the full WHOIS response for every domain:
 
     ./talia --whois=whois.example.com:43 --verbose path/to/domains.json
 
@@ -147,19 +150,44 @@ Use `--grouped-output` to produce a grouped JSON. The behavior depends on `--out
 
 2. **With `--output-file=somefile.json`**: The input file stays intact, and Talia writes/merges grouped results into `somefile.json`.
 
+### Unverified Domains in Grouped Files
+
+Talia now supports using a grouped file with an `"unverified"` array as input. This is useful for adding new domains to an existing grouped file:
+
+```json
+{
+  "available": [{ "domain": "existing-available.com", "reason": "NO_MATCH" }],
+  "unavailable": [{ "domain": "existing-unavailable.com", "reason": "TAKEN" }],
+  "unverified": [
+    { "domain": "new-domain1.com" },
+    { "domain": "new-domain2.com" }
+  ]
+}
+```
+
+When Talia processes this file:
+
+1. It checks all domains in the `"unverified"` array
+2. Moves them into either `"available"` or `"unavailable"` based on WHOIS results
+3. Clears the `"unverified"` array
+4. Preserves existing domains in the `"available"` and `"unavailable"` arrays
+
+This allows you to incrementally add and verify new domains while maintaining your existing results.
+
 ---
 
 ## How It Works
 
 1. **Parse Input**: Talia reads the JSON from disk into Go structs.
 2. **Check WHOIS**: For each domain, Talia queries the WHOIS server.
-   - If “No match for” → `available=true, reason=NO_MATCH`
+   - If "No match for" → `available=true, reason=NO_MATCH`
    - Otherwise → `available=false, reason=TAKEN`
    - If error → `available=false, reason=ERROR`
 3. **Write**:
    - **Non-grouped**: Talia updates `[{"domain":"x","available":true,"reason":"NO_MATCH"},...]` in the same file.
    - **Grouped w/o output-file**: Talia overwrites your file with `{ "available": [...], "unavailable": [...] }`.
    - **Grouped w/ output-file**: Leaves input alone, merges or creates grouped JSON in the separate file.
+   - **Grouped with unverified**: Processes unverified domains and moves them to the appropriate lists.
 
 ---
 
@@ -167,7 +195,7 @@ Use `--grouped-output` to produce a grouped JSON. The behavior depends on `--out
 
     go test -v
 
-Talia’s test suite covers:
+Talia's test suite covers:
 
 - **Unit Tests**: checking domain availability with mock WHOIS responses
 - **Integration Tests**: verifying inline updates, grouped mode, merges, and file rewrites
@@ -182,4 +210,4 @@ Talia’s test suite covers:
 - **`--verbose`**: Store WHOIS data in `"log"` even for successful checks
 - **`--grouped-output`**: Switch to grouped output
 - **`--output-file=<path>`**: If provided, Talia merges/writes grouped JSON to this file and leaves the input alone
-- **Input JSON**: The file containing an array of domain objects
+- **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains
