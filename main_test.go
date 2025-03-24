@@ -1314,3 +1314,98 @@ func TestRunCLIGroupedInput_Overwrite(t *testing.T) {
 		t.Errorf("Did not find 'check-me-3.com' in final unavailable: %+v", final.Unavailable)
 	}
 }
+
+func TestMainGroupedFileWithUnverifiedInput_SeparateOutput(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestMainGroupedFileWithUnverifiedInput_SeparateOutput", flag.ContinueOnError)
+
+	// Input: ExtendedGroupedData with unverified
+	ext := ExtendedGroupedData{
+		Available: []GroupedDomain{
+			{Domain: "old-avail.com", Reason: ReasonNoMatch},
+		},
+		Unavailable: []GroupedDomain{
+			{Domain: "old-unavail.com", Reason: ReasonTaken},
+		},
+		Unverified: []DomainRecord{
+			{Domain: "need-check.com"},
+		},
+	}
+	inputFile, _ := os.CreateTemp("", "unverified_separate_input_*.json")
+	defer os.Remove(inputFile.Name())
+	json.NewEncoder(inputFile).Encode(ext)
+	inputFile.Close()
+
+	// Output file (distinct from input)
+	outFile, _ := os.CreateTemp("", "unverified_separate_out_*.json")
+	outFileName := outFile.Name()
+	outFile.Close()
+	defer os.Remove(outFileName)
+
+	// WHOIS => domain found => reason=TAKEN
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer ln.Close()
+	go func() {
+		c, _ := ln.Accept()
+		io.Copy(io.Discard, c)
+		io.WriteString(c, "Domain Name: found-something\n")
+		c.Close()
+	}()
+
+	// Run with grouped-output + separate --output-file
+	stdout, stderr := captureOutput(t, func() {
+		code := runCLI([]string{
+			"--grouped-output",
+			"--output-file=" + outFileName,
+			"--whois=" + ln.Addr().String(),
+			inputFile.Name(),
+		})
+		if code != 0 {
+			t.Errorf("Expected exit=0, got %d", code)
+		}
+	})
+
+	// Check that we did NOT see "overwrote original file" message
+	// Instead we expect "wrote results to: outFileName"
+	if strings.Contains(stdout, "overwrote original file") {
+		t.Error("Expected separate-file message, got overwrite message!")
+	}
+	if !strings.Contains(stdout, "wrote results to:") {
+		t.Errorf("Missing the 'wrote results to:' line. stdout=%s\nstderr=%s", stdout, stderr)
+	}
+
+	// The outFile should now contain unverified => gone, domain => "need-check.com" in .Unavailable
+	data, _ := os.ReadFile(outFileName)
+	var final ExtendedGroupedData
+	json.Unmarshal(data, &final)
+	if len(final.Unverified) != 0 {
+		t.Errorf("Expected unverified=0, got %d", len(final.Unverified))
+	}
+	if len(final.Unavailable) != 2 { // old + new
+		t.Errorf("Expected 2 in .Unavailable, got %d", len(final.Unavailable))
+	}
+}
+
+func TestWriteGroupedFile_CorruptExisting(t *testing.T) {
+	tmp, err := os.CreateTemp("", "corrupt_grouped_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmp.Name())
+
+	// Write invalid JSON that fails parse as GroupedData & DomainRecord array
+	tmp.WriteString(`{"not_valid": `) // truncated, invalid
+	tmp.Close()
+
+	newest := GroupedData{
+		Available: []GroupedDomain{{Domain: "wontexist.com", Reason: ReasonNoMatch}},
+	}
+
+	// Should fail with parse grouped file
+	err = writeGroupedFile(tmp.Name(), newest)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse grouped file") {
+		t.Errorf("Expected parse grouped file error, got %v", err)
+	}
+}
