@@ -55,10 +55,12 @@ type ExtendedGroupedData struct {
 }
 
 // checkDomainAvailability queries the WHOIS server for a single domain.
+// UPDATED: now includes error details in the returned logData if dial/read fails.
 func checkDomainAvailability(domain, server string) (bool, AvailabilityReason, string, error) {
 	conn, err := net.Dial("tcp", server)
 	if err != nil {
-		return false, ReasonError, "", fmt.Errorf("failed to connect to WHOIS: %w", err)
+		logMsg := fmt.Sprintf("failed to connect to WHOIS: %v", err)
+		return false, ReasonError, logMsg, fmt.Errorf("failed to connect to WHOIS: %w", err)
 	}
 	defer conn.Close()
 
@@ -72,11 +74,13 @@ func checkDomainAvailability(domain, server string) (bool, AvailabilityReason, s
 
 	data, err := io.ReadAll(conn)
 	if err != nil && err != io.EOF {
-		return false, ReasonError, "", fmt.Errorf("read error: %w", err)
+		readMsg := fmt.Sprintf("read error: %v", err)
+		return false, ReasonError, readMsg, fmt.Errorf("read error: %w", err)
 	}
 	if len(data) == 0 {
-		return false, ReasonError, "", fmt.Errorf("empty WHOIS response")
+		return false, ReasonError, "empty WHOIS response", fmt.Errorf("empty WHOIS response")
 	}
+
 	response := string(data)
 
 	if strings.Contains(response, "No match for") {
@@ -87,8 +91,6 @@ func checkDomainAvailability(domain, server string) (bool, AvailabilityReason, s
 
 // mergeGrouped merges new grouped results into existing grouped data, deduplicating by domain.
 func mergeGrouped(existing, newest GroupedData) GroupedData {
-	// We'll track domain -> GroupedDomain instead of domain->reason
-	// so we can preserve logs if needed.
 	domainsAvail := make(map[string]GroupedDomain)
 	for _, gd := range existing.Available {
 		domainsAvail[gd.Domain] = gd
@@ -101,12 +103,10 @@ func mergeGrouped(existing, newest GroupedData) GroupedData {
 	// Insert or update from newest
 	for _, gd := range newest.Available {
 		domainsAvail[gd.Domain] = gd
-		// If it was in unavail, remove it
 		delete(domainsUnavail, gd.Domain)
 	}
 	for _, gd := range newest.Unavailable {
 		domainsUnavail[gd.Domain] = gd
-		// If it was in avail, remove it
 		delete(domainsAvail, gd.Domain)
 	}
 
@@ -122,17 +122,14 @@ func mergeGrouped(existing, newest GroupedData) GroupedData {
 }
 
 // convertArrayToGrouped turns an array of DomainRecord into GroupedData.
-// Useful if the existing file is a plain array instead of an object.
 func convertArrayToGrouped(arr []DomainRecord) GroupedData {
 	var gd GroupedData
 	for _, rec := range arr {
 		gDom := GroupedDomain{
 			Domain: rec.Domain,
 			Reason: rec.Reason,
+			Log:    rec.Log,
 		}
-		// If the record has Available=true, put it in "available";
-		// otherwise put it in "unavailable". We can also carry over logs if needed.
-		gDom.Log = rec.Log
 
 		if rec.Available {
 			gd.Available = append(gd.Available, gDom)
@@ -165,10 +162,8 @@ func writeGroupedFile(path string, newest GroupedData) error {
 			// If that fails, try parse as an array of DomainRecord
 			var arr []DomainRecord
 			if err2 := json.Unmarshal(raw, &arr); err2 == nil {
-				// Convert array to grouped
 				existing = convertArrayToGrouped(arr)
 			} else {
-				// If both attempts fail, return the original parse error
 				return fmt.Errorf("parse grouped file: %w", err)
 			}
 		}
@@ -240,7 +235,6 @@ func runCLIDomainArray(
 
 		} else {
 			// =========== Grouped Mode ===========
-			// We gather minimal domain+reason in the appropriate bucket
 			gd := GroupedDomain{
 				Domain: rec.Domain,
 				Reason: reason,
@@ -262,7 +256,7 @@ func runCLIDomainArray(
 	// Now handle final grouped output if we used --grouped-output
 	if groupedOutput {
 		if outputFile == "" {
-			// Overwrite input file with { "available": [...], "unavailable": [...] }
+			// Overwrite input file with grouped JSON
 			mergedOut, err := json.MarshalIndent(groupedData, "", "  ")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
@@ -298,13 +292,12 @@ func runCLIGroupedInput(
 	outputFile string,
 ) int {
 	// If groupedOutput was NOT specified, we force it here
-	// because we're dealing with a grouped input (with unverified).
 	finalOutputFile := outputFile
 	if !groupedOutput || outputFile == "" {
 		finalOutputFile = inputPath
 	}
 
-	// Initialize arrays if they're nil to avoid nil slice errors
+	// Initialize arrays if they're nil
 	if ext.Available == nil {
 		ext.Available = []GroupedDomain{}
 	}
@@ -344,8 +337,6 @@ func runCLIGroupedInput(
 	// Clear out unverified after we finish checking
 	ext.Unverified = nil
 
-	// Now ext has updated available/unavailable with the newly-checked domains.
-	// We simply write it out as grouped JSON.
 	out, err := json.MarshalIndent(ext, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
@@ -399,14 +390,13 @@ func runCLI(args []string) int {
 	var domains []DomainRecord
 	err = json.Unmarshal(raw, &domains)
 	if err == nil {
-		// SUCCESS: We have a plain slice of domain records.
+		// Plain slice of domain records
 		return runCLIDomainArray(*whoisServer, inputPath, domains, *sleep, *verbose, *groupedOutput, *outputFile)
 	}
 
 	// If that fails, try to parse as a grouped JSON that might contain unverified.
 	var ext ExtendedGroupedData
 	if err2 := json.Unmarshal(raw, &ext); err2 == nil {
-		// We treat this as "grouped input" with possibly some unverified records.
 		return runCLIGroupedInput(*whoisServer, inputPath, ext, *sleep, *verbose, *groupedOutput, *outputFile)
 	}
 

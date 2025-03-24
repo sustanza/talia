@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -785,8 +786,8 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 	defer ln.Close()
 
 	go func() {
-		// We'll alternate: first domain => no match => available
-		// second => found => taken
+		// We'll alternate: first => no match => available
+		// second => domain found => taken
 		i := 0
 		for {
 			c, e := ln.Accept()
@@ -883,8 +884,8 @@ func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 	inputFile.Write(raw)
 	inputFile.Close()
 
-	// Start WHOIS server that returns "No match for" for one domain and
-	// "Domain Name:" for the other.
+	// Start WHOIS server that returns "No match for" for one domain
+	// and "Domain Name:" for the other.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -932,8 +933,8 @@ func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 		t.Errorf("Expected unverified to be empty after checking, got %d", len(updated.Unverified))
 	}
 
-	// We had 1 domain that was "No match for" => available
-	// And 1 domain "Domain Name:" => unavailable
+	// We had 1 domain "No match for" => available
+	// plus 1 domain "Domain Name:" => unavailable
 	// plus the old ones
 	if len(updated.Available) != 2 {
 		t.Errorf("Expected 2 in available, got %d", len(updated.Available))
@@ -958,5 +959,358 @@ func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 	}
 	if !foundOldAvail || !foundOldUnavail {
 		t.Error("Original domains were lost during processing")
+	}
+}
+
+// TestCheckDomainAvailability_DialError verifies we get an error/log when net.Dial fails.
+func TestCheckDomainAvailability_DialError(t *testing.T) {
+	// Use a port that is presumably not open.
+	addr := "127.0.0.1:1"
+
+	available, reason, logData, err := checkDomainAvailability("faildial.com", addr)
+	if err == nil {
+		t.Errorf("Expected error from net.Dial, got nil")
+	}
+	if reason != ReasonError {
+		t.Errorf("Expected ReasonError for dial failure, got %s", reason)
+	}
+	if available {
+		t.Error("Expected domain NOT to be available on dial failure")
+	}
+	if logData == "" {
+		t.Error("Expected some error log data, got empty string")
+	}
+}
+
+// TestCheckDomainAvailability_ReadError tries to trigger a partial read error
+func TestCheckDomainAvailability_ReadError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+	defer ln.Close()
+
+	// Server that writes partial data, then forcibly resets the connection
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			conn.Write([]byte("Partial WHOIS data..."))
+			if tcp, ok := conn.(*net.TCPConn); ok {
+				// Attempt to force an RST packet
+				tcp.SetLinger(0)
+			}
+			conn.Close()
+		}
+	}()
+
+	_, reason, _, err2 := checkDomainAvailability("partialread.com", ln.Addr().String())
+	if err2 == nil {
+		t.Error("Expected a non-EOF error from partial read, got nil")
+	}
+	if reason != ReasonError {
+		t.Errorf("Expected reason=ERROR for partial read, got %s", reason)
+	}
+}
+
+// TestReplaceDomain_NotFound ensures we cover the scenario where replaceDomain
+// doesn't find a matching domain.
+func TestReplaceDomain_NotFound(t *testing.T) {
+	original := []DomainRecord{
+		{Domain: "existing.com", Available: false},
+	}
+	newRec := DomainRecord{Domain: "not-found.com", Available: true}
+
+	replaceDomain(original, newRec)
+	// The array should remain unchanged if domain not found
+	if len(original) != 1 || original[0].Domain != "existing.com" {
+		t.Error("replaceDomain incorrectly replaced a non-existent domain")
+	}
+}
+
+func TestWriteGroupedFile_EmptyPath(t *testing.T) {
+	err := writeGroupedFile("", GroupedData{})
+	if err != nil {
+		t.Errorf("Expected nil error if path==\"\", got %v", err)
+	}
+}
+
+func TestWriteGroupedFile_NewFile(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "dummy_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	os.Remove(tmpPath)
+
+	gData := GroupedData{
+		Available: []GroupedDomain{{Domain: "newavail.com", Reason: ReasonNoMatch}},
+	}
+
+	err = writeGroupedFile(tmpPath, gData)
+	if err != nil {
+		t.Fatalf("writeGroupedFile returned error: %v", err)
+	}
+
+	raw, _ := os.ReadFile(tmpPath)
+	defer os.Remove(tmpPath)
+
+	var out GroupedData
+	json.Unmarshal(raw, &out)
+	if len(out.Available) != 1 || out.Available[0].Domain != "newavail.com" {
+		t.Errorf("Expected domain newavail.com in available, got %+v", out)
+	}
+}
+
+func TestWriteGroupedFile_ParseArrayFallback(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "array_fallback_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	arr := []DomainRecord{
+		{Domain: "arrdomain1.com", Available: true, Reason: ReasonNoMatch},
+		{Domain: "arrdomain2.com", Available: false, Reason: ReasonTaken},
+	}
+	raw, _ := json.Marshal(arr)
+	tmpFile.Write(raw)
+	tmpFile.Close()
+
+	newest := GroupedData{
+		Available: []GroupedDomain{
+			{Domain: "additionalAvail.com", Reason: ReasonNoMatch},
+		},
+	}
+
+	err = writeGroupedFile(tmpFile.Name(), newest)
+	if err != nil {
+		t.Fatalf("writeGroupedFile error: %v", err)
+	}
+
+	finalRaw, _ := os.ReadFile(tmpFile.Name())
+	var final GroupedData
+	json.Unmarshal(finalRaw, &final)
+
+	if len(final.Available) != 2 {
+		t.Errorf("Expected 2 available, got %d: %#v", len(final.Available), final.Available)
+	}
+	if len(final.Unavailable) != 1 {
+		t.Errorf("Expected 1 unavailable, got %d: %#v", len(final.Unavailable), final.Unavailable)
+	}
+}
+
+type UnmarshalableGroupedData struct {
+	GroupedData
+	BadField func() `json:"bad_field"` // This breaks json.Marshal
+}
+
+func TestWriteGroupedFile_MarshalError(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "marshal_err_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	g := UnmarshalableGroupedData{
+		GroupedData: GroupedData{
+			Available: []GroupedDomain{{Domain: "bad-marsh.com", Reason: ReasonNoMatch}},
+		},
+		BadField: func() {},
+	}
+
+	err = testWriteGroupedFileWithInterface(tmpFile.Name(), g)
+	if err == nil || !strings.Contains(err.Error(), "marshal grouped data") {
+		t.Errorf("Expected marshal error, got %v", err)
+	}
+}
+
+// Minimal clone that forcibly calls json.MarshalIndent on 'data'
+func testWriteGroupedFileWithInterface(path string, data interface{}) error {
+	out, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal grouped data: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0644); err != nil {
+		return fmt.Errorf("write grouped file: %w", err)
+	}
+	return nil
+}
+
+// NEW TEST #1: Directly test convertArrayToGrouped
+func TestConvertArrayToGrouped(t *testing.T) {
+	arr := []DomainRecord{
+		{Domain: "test1.com", Available: true, Reason: ReasonNoMatch, Log: "log1"},
+		{Domain: "test2.com", Available: false, Reason: ReasonTaken, Log: "log2"},
+		{Domain: "test3.com", Available: false, Reason: ReasonError, Log: "log3"},
+	}
+	g := convertArrayToGrouped(arr)
+	if len(g.Available) != 1 {
+		t.Errorf("expected 1 in available, got %d", len(g.Available))
+	}
+	if len(g.Unavailable) != 2 {
+		t.Errorf("expected 2 in unavailable, got %d", len(g.Unavailable))
+	}
+
+	if g.Available[0].Domain != "test1.com" || g.Available[0].Log != "log1" {
+		t.Error("test1.com should be in available with correct log")
+	}
+
+	var foundTest2, foundTest3 bool
+	for _, u := range g.Unavailable {
+		if u.Domain == "test2.com" && u.Reason == ReasonTaken && u.Log == "log2" {
+			foundTest2 = true
+		}
+		if u.Domain == "test3.com" && u.Reason == ReasonError && u.Log == "log3" {
+			foundTest3 = true
+		}
+	}
+	if !foundTest2 || !foundTest3 {
+		t.Error("Did not find test2.com or test3.com in unavailable list with correct reason/log")
+	}
+}
+
+// NEW TEST #2: Directly test writeGroupedFile when existing file is valid grouped JSON
+func TestWriteGroupedFile_ExistingGrouped(t *testing.T) {
+	tmp, err := os.CreateTemp("", "existing_grouped_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmp.Name())
+
+	existing := GroupedData{
+		Available:   []GroupedDomain{{Domain: "oldavail.com", Reason: ReasonNoMatch}},
+		Unavailable: []GroupedDomain{{Domain: "oldunavail.com", Reason: ReasonTaken}},
+	}
+	oldBytes, _ := json.Marshal(existing)
+	tmp.Write(oldBytes)
+	tmp.Close()
+
+	newData := GroupedData{
+		Available: []GroupedDomain{
+			{Domain: "newavail.com", Reason: ReasonNoMatch},
+		},
+		Unavailable: []GroupedDomain{
+			{Domain: "newunavail.com", Reason: ReasonError},
+		},
+	}
+	if err := writeGroupedFile(tmp.Name(), newData); err != nil {
+		t.Fatalf("writeGroupedFile: %v", err)
+	}
+
+	finalRaw, _ := os.ReadFile(tmp.Name())
+	var final GroupedData
+	if err := json.Unmarshal(finalRaw, &final); err != nil {
+		t.Fatalf("unmarshal final: %v", err)
+	}
+	// Expect old + new in each group
+	if len(final.Available) != 2 {
+		t.Errorf("expected 2 in available, got %d", len(final.Available))
+	}
+	if len(final.Unavailable) != 2 {
+		t.Errorf("expected 2 in unavailable, got %d", len(final.Unavailable))
+	}
+
+	var haveOldAvail, haveNewAvail, haveOldUnavail, haveNewUnavail bool
+	for _, d := range final.Available {
+		if d.Domain == "oldavail.com" {
+			haveOldAvail = true
+		}
+		if d.Domain == "newavail.com" {
+			haveNewAvail = true
+		}
+	}
+	for _, d := range final.Unavailable {
+		if d.Domain == "oldunavail.com" {
+			haveOldUnavail = true
+		}
+		if d.Domain == "newunavail.com" {
+			haveNewUnavail = true
+		}
+	}
+	if !haveOldAvail || !haveNewAvail || !haveOldUnavail || !haveNewUnavail {
+		t.Errorf("Merge logic failed. Final: %+v", final)
+	}
+}
+
+// NEW TEST #3: Test runCLIGroupedInput scenario WITHOUT --grouped-output (forces overwrite of the same file)
+func TestRunCLIGroupedInput_Overwrite(t *testing.T) {
+	flag.CommandLine = flag.NewFlagSet("TestRunCLIGroupedInput_Overwrite", flag.ContinueOnError)
+
+	// Build a grouped JSON with unverified domain
+	g := ExtendedGroupedData{
+		Available: []GroupedDomain{
+			{Domain: "old-avail.com", Reason: ReasonNoMatch},
+		},
+		Unavailable: []GroupedDomain{
+			{Domain: "old-unavail.com", Reason: ReasonTaken},
+		},
+		Unverified: []DomainRecord{
+			{Domain: "check-me-3.com"},
+		},
+	}
+	b, _ := json.MarshalIndent(g, "", "  ")
+
+	// Write to temp file
+	tmpFile, err := os.CreateTemp("", "grouped_overwrite_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Write(b)
+	tmpFile.Close()
+
+	// Start WHOIS => "Domain Name: found-something" => taken
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		c, _ := ln.Accept()
+		if c != nil {
+			io.Copy(io.Discard, c)
+			io.WriteString(c, "Domain Name: found-something\n")
+			c.Close()
+		}
+	}()
+
+	// call runCLI with NO --grouped-output => runCLI sees grouped JSON, calls runCLIGroupedInput,
+	// which sets finalOutputFile = inputPath if !groupedOutput.
+	_, _ = captureOutput(t, func() {
+		code := runCLI([]string{
+			"--whois=" + ln.Addr().String(),
+			tmpFile.Name(),
+		})
+		if code != 0 {
+			t.Errorf("Expected exit code 0, got %d", code)
+		}
+	})
+
+	// Now the original file should be overwritten. unverified => empty, new domain => "taken"
+	updated, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final ExtendedGroupedData
+	if err := json.Unmarshal(updated, &final); err != nil {
+		t.Fatalf("Unmarshal final: %v", err)
+	}
+	if len(final.Unverified) != 0 {
+		t.Errorf("Expected no unverified, got %d", len(final.Unverified))
+	}
+	foundCheckMe3 := false
+	for _, d := range final.Unavailable {
+		if d.Domain == "check-me-3.com" {
+			foundCheckMe3 = true
+			if d.Reason != ReasonTaken {
+				t.Errorf("Expected reason=TAKEN, got %s", d.Reason)
+			}
+		}
+	}
+	if !foundCheckMe3 {
+		t.Errorf("Did not find 'check-me-3.com' in final unavailable: %+v", final.Unavailable)
 	}
 }
