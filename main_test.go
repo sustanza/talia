@@ -7,11 +7,35 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"strings"
 	"testing"
 )
+
+// helperClose checks and reports Close errors.
+func helperClose(t *testing.T, c io.Closer, ctx string) {
+	if err := c.Close(); err != nil {
+		if t != nil {
+			t.Fatalf("%s: %v", ctx, err)
+		}
+		log.Printf("%s: %v", ctx, err)
+	}
+}
+
+// helperRemove / helperRemoveAll wrap os.Remove / os.RemoveAll.
+func helperRemove(t *testing.T, path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove %s: %v", path, err)
+	}
+}
+
+func helperRemoveAll(t *testing.T, path string) {
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatalf("removeAll %s: %v", path, err)
+	}
+}
 
 // captureOutput captures stdout/stderr during a function call.
 func captureOutput(t *testing.T, fn func()) (string, string) {
@@ -32,19 +56,19 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 
 	go func() {
 		var buf bytes.Buffer
-		io.Copy(&buf, rOut)
+		_, _ = io.Copy(&buf, rOut) // pipe closes when test ends
 		outCh <- buf.String()
 	}()
 	go func() {
 		var buf bytes.Buffer
-		io.Copy(&buf, rErr)
+		_, _ = io.Copy(&buf, rErr)
 		errCh <- buf.String()
 	}()
 
 	fn()
 
-	wOut.Close()
-	wErr.Close()
+	helperClose(t, wOut, "close stdout pipe")
+	helperClose(t, wErr, "close stderr pipe")
 	os.Stdout, os.Stderr = oldStdout, oldStderr
 	return <-outCh, <-errCh
 }
@@ -61,9 +85,9 @@ func TestCheckDomainAvailability(t *testing.T) {
 		{
 			name: "No match => available=TRUE, reason=NO_MATCH",
 			serverHandler: func(c net.Conn) {
-				io.Copy(io.Discard, c)
-				io.WriteString(c, "No match for example.com\n")
-				c.Close()
+				_, _ = io.Copy(io.Discard, c)
+				_, _ = io.WriteString(c, "No match for example.com\n")
+				helperClose(nil, c, "conn close")
 			},
 			wantAvailable: true,
 			wantReason:    ReasonNoMatch,
@@ -71,9 +95,9 @@ func TestCheckDomainAvailability(t *testing.T) {
 		{
 			name: "Domain found => available=FALSE, reason=TAKEN",
 			serverHandler: func(c net.Conn) {
-				io.Copy(io.Discard, c)
-				io.WriteString(c, "Domain Name: something.com\n")
-				c.Close()
+				_, _ = io.Copy(io.Discard, c)
+				_, _ = io.WriteString(c, "Domain Name: something.com\n")
+				helperClose(nil, c, "conn close")
 			},
 			wantAvailable: false,
 			wantReason:    ReasonTaken,
@@ -81,7 +105,7 @@ func TestCheckDomainAvailability(t *testing.T) {
 		{
 			name: "Immediate close => reason=ERROR",
 			serverHandler: func(c net.Conn) {
-				c.Close()
+				helperClose(nil, c, "conn close")
 			},
 			wantAvailable: false,
 			wantReason:    ReasonError,
@@ -91,8 +115,8 @@ func TestCheckDomainAvailability(t *testing.T) {
 			name: "Empty response => reason=ERROR",
 			serverHandler: func(c net.Conn) {
 				// Send no data
-				io.Copy(io.Discard, c)
-				c.Close()
+				_, _ = io.Copy(io.Discard, c)
+				helperClose(nil, c, "conn close")
 			},
 			wantAvailable: false,
 			wantReason:    ReasonError,
@@ -106,7 +130,7 @@ func TestCheckDomainAvailability(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to listen: %v", err)
 			}
-			defer ln.Close()
+			defer helperClose(t, ln, "listener close")
 
 			go func() {
 				conn, err := ln.Accept()
@@ -170,7 +194,7 @@ func TestInputFileReadError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer helperRemoveAll(t, tmpDir)
 
 	_, stderr := captureOutput(t, func() {
 		code := runCLI([]string{"--whois=127.0.0.1:9999", "--sleep=0s", tmpDir})
@@ -191,10 +215,12 @@ func TestInputFileParseError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer helperRemove(t, tmpFile.Name())
 
-	tmpFile.WriteString("{\"domain\": \"test.com\", ") // incomplete
-	tmpFile.Close()
+	if _, err := tmpFile.WriteString("{\"domain\": \"test.com\", "); err != nil { // incomplete
+		t.Fatalf("write malformed JSON: %v", err)
+	}
+	helperClose(t, tmpFile, "tmpFile close for parse error test")
 
 	_, stderr := captureOutput(t, func() {
 		code := runCLI([]string{"--whois=127.0.0.1:9999", "--sleep=0s", tmpFile.Name()})
@@ -215,7 +241,7 @@ func TestMainNonGrouped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer helperRemove(t, tmp.Name())
 
 	domains := []DomainRecord{
 		{Domain: "example1.com"},
@@ -223,25 +249,25 @@ func TestMainNonGrouped(t *testing.T) {
 	}
 	js, _ := json.MarshalIndent(domains, "", "  ")
 	if _, err := tmp.Write(js); err != nil {
-		t.Fatalf("Failed writing to temp file: %v", err)
+		t.Fatalf("write temp JSON: %v", err)
 	}
-	tmp.Close()
+	helperClose(t, tmp, "tmp file close for non-grouped test")
 
 	// WHOIS => always 'No match for' => available
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
-			io.WriteString(c, "No match for domain\n")
-			c.Close()
+			_, _ = io.Copy(io.Discard, c)
+			_, _ = io.WriteString(c, "No match for domain\n")
+			helperClose(nil, c, "conn close")
 		}
 	}()
 
@@ -262,7 +288,7 @@ func TestMainNonGrouped(t *testing.T) {
 	}
 	var updatedList []DomainRecord
 	if err := json.Unmarshal(updated, &updatedList); err != nil {
-		t.Fatalf("unmarshal updated: %v", err)
+		t.Fatalf("unmarshal updated list: %v", err)
 	}
 	if len(updatedList) != 2 {
 		t.Errorf("want 2, got %d", len(updatedList))
@@ -289,31 +315,35 @@ func TestFileWriteError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp file: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer helperRemove(t, tmp.Name())
 
 	// put some data
 	domains := []DomainRecord{{Domain: "test.com"}}
 	b, _ := json.Marshal(domains)
-	tmp.Write(b)
-	tmp.Close()
+	if _, err := tmp.Write(b); err != nil {
+		t.Fatalf("write temp data: %v", err)
+	}
+	helperClose(t, tmp, "tmp file close for write error test")
 
 	// Make it read-only
-	os.Chmod(tmp.Name(), 0400)
+	if err := os.Chmod(tmp.Name(), 0o400); err != nil {
+		t.Fatalf("chmod temp file: %v", err)
+	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
-			io.WriteString(c, "No match for domain\n")
-			c.Close()
+			_, _ = io.Copy(io.Discard, c)
+			_, _ = io.WriteString(c, "No match for domain\n")
+			helperClose(nil, c, "conn close")
 		}
 	}()
 
@@ -340,28 +370,30 @@ func TestMainVerbose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp file: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer helperRemove(t, tmp.Name())
 
 	domains := []DomainRecord{{Domain: "verbose1.com"}}
 	js, _ := json.MarshalIndent(domains, "", "  ")
-	tmp.Write(js)
-	tmp.Close()
+	if _, err := tmp.Write(js); err != nil {
+		t.Fatalf("write temp JSON: %v", err)
+	}
+	helperClose(t, tmp, "tmp file close for verbose test")
 
 	// WHOIS => "No match for"
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
-			io.WriteString(c, "No match for domain\n")
-			c.Close()
+			_, _ = io.Copy(io.Discard, c)
+			_, _ = io.WriteString(c, "No match for domain\n")
+			helperClose(nil, c, "conn close")
 		}
 	}()
 
@@ -382,7 +414,9 @@ func TestMainVerbose(t *testing.T) {
 		t.Fatalf("read updated: %v", err)
 	}
 	var updatedList []DomainRecord
-	json.Unmarshal(updated, &updatedList)
+	if err := json.Unmarshal(updated, &updatedList); err != nil {
+		t.Fatalf("unmarshal updated list: %v", err)
+	}
 	if len(updatedList) != 1 {
 		t.Errorf("want 1 domain, got %d", len(updatedList))
 	}
@@ -399,22 +433,24 @@ func TestMainErrorCase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp file: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer helperRemove(t, tmp.Name())
 
 	domains := []DomainRecord{
 		{Domain: "error1.com"},
 		{Domain: "ok2.com"},
 	}
 	js, _ := json.MarshalIndent(domains, "", "  ")
-	tmp.Write(js)
-	tmp.Close()
+	if _, err := tmp.Write(js); err != nil {
+		t.Fatalf("write temp JSON: %v", err)
+	}
+	helperClose(t, tmp, "tmp file close for error case test")
 
 	// First conn => immediate close => error, second => "No match for"
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 
 	go func() {
 		counter := 0
@@ -424,12 +460,12 @@ func TestMainErrorCase(t *testing.T) {
 				return
 			}
 			func(conn net.Conn) {
-				defer conn.Close()
-				io.Copy(io.Discard, conn)
+				defer helperClose(nil, conn, "conn close")
+				_, _ = io.Copy(io.Discard, conn)
 				if counter == 0 {
 					// Immediate close => error
 				} else {
-					io.WriteString(conn, "No match for domain\n")
+					_, _ = io.WriteString(conn, "No match for domain\n")
 				}
 				counter++
 			}(c)
@@ -457,7 +493,7 @@ func TestMainErrorCase(t *testing.T) {
 	}
 	var updatedList []DomainRecord
 	if err := json.Unmarshal(updated, &updatedList); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+		t.Fatalf("unmarshal updated list: %v", err)
 	}
 	if len(updatedList) != 2 {
 		t.Errorf("want 2, got %d", len(updatedList))
@@ -488,22 +524,24 @@ func TestMainGroupedNoFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp file: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer helperRemove(t, tmp.Name())
 
 	domains := []DomainRecord{
 		{Domain: "g1.com"},
 		{Domain: "g2.com"},
 	}
 	js, _ := json.MarshalIndent(domains, "", "  ")
-	tmp.Write(js)
-	tmp.Close()
+	if _, err := tmp.Write(js); err != nil {
+		t.Fatalf("write temp JSON: %v", err)
+	}
+	helperClose(t, tmp, "tmp file close for grouped no file test")
 
 	// WHOIS => first => no match => available, second => domain => taken
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 	go func() {
 		i := 0
 		for {
@@ -512,12 +550,12 @@ func TestMainGroupedNoFile(t *testing.T) {
 				return
 			}
 			func(conn net.Conn) {
-				defer conn.Close()
-				io.Copy(io.Discard, conn)
+				defer helperClose(nil, conn, "conn close")
+				_, _ = io.Copy(io.Discard, conn)
 				if i == 0 {
-					io.WriteString(conn, "No match for domain\n")
+					_, _ = io.WriteString(conn, "No match for domain\n")
 				} else {
-					io.WriteString(conn, "Domain Name: something.com\n")
+					_, _ = io.WriteString(conn, "Domain Name: something.com\n")
 				}
 				i++
 			}(c)
@@ -561,19 +599,21 @@ func TestMainGroupedWithFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp input: %v", err)
 	}
-	defer os.Remove(inputFile.Name())
+	defer helperRemove(t, inputFile.Name())
 
 	domains := []DomainRecord{{Domain: "merge-test1.com"}, {Domain: "merge-test2.com"}}
 	data, _ := json.MarshalIndent(domains, "", "  ")
-	inputFile.Write(data)
-	inputFile.Close()
+	if _, err := inputFile.Write(data); err != nil {
+		t.Fatalf("write input JSON: %v", err)
+	}
+	helperClose(t, inputFile, "inputFile close for grouped with file test")
 
 	// Existing grouped file (non-empty) with 1 domain
 	groupedFile, err := os.CreateTemp("", "grouped_output_*.json")
 	if err != nil {
 		t.Fatalf("temp grouped: %v", err)
 	}
-	defer os.Remove(groupedFile.Name())
+	defer helperRemove(t, groupedFile.Name())
 
 	existingGrouped := GroupedData{
 		Available: []GroupedDomain{
@@ -584,15 +624,17 @@ func TestMainGroupedWithFile(t *testing.T) {
 		},
 	}
 	egBytes, _ := json.MarshalIndent(existingGrouped, "", "  ")
-	groupedFile.Write(egBytes)
-	groupedFile.Close()
+	if _, err := groupedFile.Write(egBytes); err != nil {
+		t.Fatalf("write grouped JSON: %v", err)
+	}
+	helperClose(t, groupedFile, "groupedFile close for grouped with file test")
 
 	// WHOIS => first => no match => available, second => found => unavailable
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 	go func() {
 		i := 0
 		for {
@@ -601,12 +643,12 @@ func TestMainGroupedWithFile(t *testing.T) {
 				return
 			}
 			func(c net.Conn) {
-				defer c.Close()
-				io.Copy(io.Discard, c)
+				defer helperClose(nil, c, "conn close")
+				_, _ = io.Copy(io.Discard, c)
 				if i == 0 {
-					io.WriteString(c, "No match for domain\n")
+					_, _ = io.WriteString(c, "No match for domain\n")
 				} else {
-					io.WriteString(c, "Domain Name: found-something\n")
+					_, _ = io.WriteString(c, "Domain Name: found-something\n")
 				}
 				i++
 			}(conn)
@@ -632,7 +674,9 @@ func TestMainGroupedWithFile(t *testing.T) {
 		t.Fatalf("read input: %v", err)
 	}
 	var inCheck []DomainRecord
-	json.Unmarshal(inRaw, &inCheck)
+	if err := json.Unmarshal(inRaw, &inCheck); err != nil {
+		t.Fatalf("unmarshal inCheck: %v", err)
+	}
 	for _, r := range inCheck {
 		if r.Available || r.Reason != "" {
 			t.Errorf("expected no changes in input JSON, found reason=%s", r.Reason)
@@ -667,32 +711,34 @@ func TestMainGroupedFileEmptyExisting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp input: %v", err)
 	}
-	defer os.Remove(inputFile.Name())
+	defer helperRemove(t, inputFile.Name())
 
 	domains := []DomainRecord{{Domain: "empty-existing-1.com"}}
 	data, _ := json.MarshalIndent(domains, "", "  ")
-	inputFile.Write(data)
-	inputFile.Close()
+	if _, err := inputFile.Write(data); err != nil {
+		t.Fatalf("write input JSON: %v", err)
+	}
+	helperClose(t, inputFile, "inputFile close for grouped empty existing test")
 
 	// Create an empty grouped file
 	groupedFile, err := os.CreateTemp("", "grouped_out_*.json")
 	if err != nil {
 		t.Fatalf("temp grouped: %v", err)
 	}
-	groupedFile.Close()
-	defer os.Remove(groupedFile.Name())
+	helperClose(t, groupedFile, "groupedFile close for grouped empty existing test")
+	defer helperRemove(t, groupedFile.Name())
 
 	// WHOIS => no match => available
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 	go func() {
 		c, _ := ln.Accept()
-		io.Copy(io.Discard, c)
-		io.WriteString(c, "No match for domain\n")
-		c.Close()
+		_, _ = io.Copy(io.Discard, c)
+		_, _ = io.WriteString(c, "No match for domain\n")
+		helperClose(nil, c, "conn close")
 	}()
 
 	_, stderr := captureOutput(t, func() {
@@ -762,22 +808,24 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(inputFile.Name())
+	defer helperRemove(t, inputFile.Name())
 
 	doms := []DomainRecord{
 		{Domain: "append-1.com"},
 		{Domain: "append-2.com"},
 	}
 	b, _ := json.Marshal(doms)
-	inputFile.Write(b)
-	inputFile.Close()
+	if _, err := inputFile.Write(b); err != nil {
+		t.Fatalf("write temp data: %v", err)
+	}
+	helperClose(t, inputFile, "inputFile close for repeated append test")
 
 	// 2. Create/initialize an output grouped file
 	groupedFile, err := os.CreateTemp("", "repeated_output_*.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(groupedFile.Name())
+	defer helperRemove(t, groupedFile.Name())
 
 	gf := GroupedData{
 		Available: []GroupedDomain{},
@@ -786,15 +834,17 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 		},
 	}
 	gfBytes, _ := json.MarshalIndent(gf, "", "  ")
-	groupedFile.Write(gfBytes)
-	groupedFile.Close()
+	if _, err := groupedFile.Write(gfBytes); err != nil {
+		t.Fatalf("write grouped file: %v", err)
+	}
+	helperClose(t, groupedFile, "groupedFile close for repeated append test")
 
 	// 3. Start a mock WHOIS server
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 
 	go func() {
 		// We'll alternate: first => no match => available
@@ -805,13 +855,13 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 			if e != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
+			_, _ = io.Copy(io.Discard, c)
 			if i%2 == 0 {
-				io.WriteString(c, "No match for domain\n")
+				_, _ = io.WriteString(c, "No match for domain\n")
 			} else {
-				io.WriteString(c, "Domain Name: found-it\n")
+				_, _ = io.WriteString(c, "Domain Name: found-it\n")
 			}
-			c.Close()
+			helperClose(nil, c, "conn close")
 			i++
 		}
 	}()
@@ -893,9 +943,11 @@ func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(inputFile.Name())
-	inputFile.Write(raw)
-	inputFile.Close()
+	defer helperRemove(t, inputFile.Name())
+	if _, err := inputFile.Write(raw); err != nil {
+		t.Fatalf("write raw JSON: %v", err)
+	}
+	helperClose(t, inputFile, "inputFile close for unverified input test")
 
 	// Start WHOIS server that returns "No match for" for one domain
 	// and "Domain Name:" for the other.
@@ -903,7 +955,7 @@ func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 
 	go func() {
 		i := 0
@@ -912,13 +964,13 @@ func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 			if e != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
+			_, _ = io.Copy(io.Discard, c)
 			if i%2 == 0 {
-				io.WriteString(c, "No match for domain\n")
+				_, _ = io.WriteString(c, "No match for domain\n")
 			} else {
-				io.WriteString(c, "Domain Name: found-something\n")
+				_, _ = io.WriteString(c, "Domain Name: found-something\n")
 			}
-			c.Close()
+			helperClose(nil, c, "conn close")
 			i++
 		}
 	}()
@@ -1002,18 +1054,18 @@ func TestCheckDomainAvailability_ReadError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to listen: %v", err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 
 	// Server that writes partial data, then forcibly resets the connection
 	go func() {
 		conn, _ := ln.Accept()
 		if conn != nil {
-			conn.Write([]byte("Partial WHOIS data..."))
+			_, _ = conn.Write([]byte("Partial WHOIS data..."))
 			if tcp, ok := conn.(*net.TCPConn); ok {
 				// Attempt to force an RST packet
-				tcp.SetLinger(0)
+				_ = tcp.SetLinger(0)
 			}
-			conn.Close()
+			helperClose(nil, conn, "conn close")
 		}
 	}()
 
@@ -1051,8 +1103,8 @@ func TestWriteGroupedFile_NewFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	os.Remove(tmpPath)
+	helperClose(t, tmpFile, "tmpFile close for new file test")
+	defer helperRemove(t, tmpPath) // Changed from os.Remove
 
 	gData := GroupedData{
 		Available: []GroupedDomain{{Domain: "newavail.com", Reason: ReasonNoMatch}},
@@ -1064,10 +1116,12 @@ func TestWriteGroupedFile_NewFile(t *testing.T) {
 	}
 
 	raw, _ := os.ReadFile(tmpPath)
-	defer os.Remove(tmpPath)
+	// defer os.Remove(tmpPath) // This line was removed as defer helperRemove is above
 
 	var out GroupedData
-	json.Unmarshal(raw, &out)
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal out: %v", err)
+	}
 	if len(out.Available) != 1 || out.Available[0].Domain != "newavail.com" {
 		t.Errorf("Expected domain newavail.com in available, got %+v", out)
 	}
@@ -1078,15 +1132,17 @@ func TestWriteGroupedFile_ParseArrayFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer helperRemove(t, tmpFile.Name())
 
 	arr := []DomainRecord{
 		{Domain: "arrdomain1.com", Available: true, Reason: ReasonNoMatch},
 		{Domain: "arrdomain2.com", Available: false, Reason: ReasonTaken},
 	}
 	raw, _ := json.Marshal(arr)
-	tmpFile.Write(raw)
-	tmpFile.Close()
+	if _, err := tmpFile.Write(raw); err != nil {
+		t.Fatalf("write raw JSON: %v", err)
+	}
+	helperClose(t, tmpFile, "tmpFile close for parse array fallback test")
 
 	newest := GroupedData{
 		Available: []GroupedDomain{
@@ -1101,7 +1157,9 @@ func TestWriteGroupedFile_ParseArrayFallback(t *testing.T) {
 
 	finalRaw, _ := os.ReadFile(tmpFile.Name())
 	var final GroupedData
-	json.Unmarshal(finalRaw, &final)
+	if err := json.Unmarshal(finalRaw, &final); err != nil {
+		t.Fatalf("unmarshal final: %v", err)
+	}
 
 	if len(final.Available) != 2 {
 		t.Errorf("Expected 2 available, got %d: %#v", len(final.Available), final.Available)
@@ -1121,8 +1179,8 @@ func TestWriteGroupedFile_MarshalError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+	defer helperRemove(t, tmpFile.Name()) // Changed from os.Remove
+	helperClose(t, tmpFile, "tmpFile close for marshal error test")
 
 	g := UnmarshalableGroupedData{
 		GroupedData: GroupedData{
@@ -1188,15 +1246,17 @@ func TestWriteGroupedFile_ExistingGrouped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmp.Name())
+	defer helperRemove(t, tmp.Name())
 
 	existing := GroupedData{
 		Available:   []GroupedDomain{{Domain: "oldavail.com", Reason: ReasonNoMatch}},
 		Unavailable: []GroupedDomain{{Domain: "oldunavail.com", Reason: ReasonTaken}},
 	}
 	oldBytes, _ := json.Marshal(existing)
-	tmp.Write(oldBytes)
-	tmp.Close()
+	if _, err := tmp.Write(oldBytes); err != nil {
+		t.Fatalf("write old bytes: %v", err)
+	}
+	helperClose(t, tmp, "tmp file close for existing grouped test")
 
 	newData := GroupedData{
 		Available: []GroupedDomain{
@@ -1268,23 +1328,25 @@ func TestRunCLIGroupedInput_Overwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Write(b)
-	tmpFile.Close()
+	defer helperRemove(t, tmpFile.Name())
+	if _, err := tmpFile.Write(b); err != nil {
+		t.Fatalf("write grouped JSON: %v", err)
+	}
+	helperClose(t, tmpFile, "tmpFile close for grouped overwrite test")
 
 	// Start WHOIS => "Domain Name: found-something" => taken
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close")
 
 	go func() {
 		c, _ := ln.Accept()
 		if c != nil {
-			io.Copy(io.Discard, c)
-			io.WriteString(c, "Domain Name: found-something\n")
-			c.Close()
+			_, _ = io.Copy(io.Discard, c)
+			_, _ = io.WriteString(c, "Domain Name: found-something\n")
+			helperClose(nil, c, "conn close")
 		}
 	}()
 
@@ -1343,24 +1405,26 @@ func TestMainGroupedFileWithUnverifiedInput_SeparateOutput(t *testing.T) {
 		},
 	}
 	inputFile, _ := os.CreateTemp("", "unverified_separate_input_*.json")
-	defer os.Remove(inputFile.Name())
-	json.NewEncoder(inputFile).Encode(ext)
-	inputFile.Close()
+	defer helperRemove(t, inputFile.Name())
+	if err := json.NewEncoder(inputFile).Encode(ext); err != nil {
+		t.Fatalf("encode ext JSON: %v", err)
+	}
+	helperClose(t, inputFile, "inputFile close for unverified separate output test")
 
 	// Output file (distinct from input)
 	outFile, _ := os.CreateTemp("", "unverified_separate_out_*.json")
 	outFileName := outFile.Name()
-	outFile.Close()
-	defer os.Remove(outFileName)
+	helperClose(t, outFile, "outFile close for unverified separate output test")
+	defer helperRemove(t, outFileName)
 
 	// WHOIS => domain found => reason=TAKEN
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer ln.Close()
+	defer helperClose(t, ln, "listener close") // Changed from ln.Close()
 	go func() {
 		c, _ := ln.Accept()
-		io.Copy(io.Discard, c)
-		io.WriteString(c, "Domain Name: found-something\n")
-		c.Close()
+		_, _ = io.Copy(io.Discard, c)
+		_, _ = io.WriteString(c, "Domain Name: found-something\n")
+		helperClose(nil, c, "conn close")
 	}()
 
 	// Run with grouped-output + separate --output-file
@@ -1389,7 +1453,9 @@ func TestMainGroupedFileWithUnverifiedInput_SeparateOutput(t *testing.T) {
 	// The outFile should now contain unverified => gone, domain => "need-check.com" in .Unavailable
 	data, _ := os.ReadFile(outFileName)
 	var final ExtendedGroupedData
-	json.Unmarshal(data, &final)
+	if err := json.Unmarshal(data, &final); err != nil {
+		t.Fatalf("unmarshal out: %v", err)
+	}
 	if len(final.Unverified) != 0 {
 		t.Errorf("Expected unverified=0, got %d", len(final.Unverified))
 	}
@@ -1403,11 +1469,13 @@ func TestWriteGroupedFile_CorruptExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmp.Name())
+	defer helperRemove(t, tmp.Name()) // Changed from os.Remove
 
 	// Write invalid JSON that fails parse as GroupedData & DomainRecord array
-	tmp.WriteString(`{"not_valid": `) // truncated, invalid
-	tmp.Close()
+	if _, err := tmp.WriteString(`{"not_valid": `); err != nil {
+		t.Fatalf("write corrupt JSON: %v", err)
+	}
+	helperClose(t, tmp, "tmp file close for corrupt existing test")
 
 	newest := GroupedData{
 		Available: []GroupedDomain{{Domain: "wontexist.com", Reason: ReasonNoMatch}},
