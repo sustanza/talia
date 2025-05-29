@@ -84,6 +84,7 @@ Talia reads a list of domains from a JSON file and connects to a **user-specifie
 ### Prerequisites
 
 - Go 1.16 or later
+- golangci‑lint v2.1.6 (declared as a Go tool; Go 1.24+ will auto‑build it on first use)
 
 ### Steps
 
@@ -173,6 +174,23 @@ When Talia processes this file:
 4. Preserves existing domains in the `"available"` and `"unavailable"` arrays
 
 This allows you to incrementally add and verify new domains while maintaining your existing results.
+
+### Static Analysis (golangci‑lint)
+
+To lint the codebase, run:
+
+```bash
+go tool golangci-lint run
+```
+
+Go automatically builds and caches the version pinned in `go.mod` the first time you invoke the command.  
+If you already have a global `golangci-lint` on your PATH, you can instead run:
+
+```bash
+golangci-lint run
+```
+
+A clean, zero‑error run is required before submitting a pull request.
 
 ---
 
