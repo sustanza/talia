@@ -1,5 +1,5 @@
-// Package main_test contains tests for Talia, a CLI for WHOIS-based domain checks.
-package main
+// Package talia contains tests for the Talia CLI library.
+package talia
 
 import (
 	"bytes"
@@ -140,7 +140,7 @@ func TestCheckDomainAvailability(t *testing.T) {
 				tt.serverHandler(conn)
 			}()
 
-			avail, reason, _, err := checkDomainAvailability("example.com", ln.Addr().String())
+			avail, reason, _, err := CheckDomainAvailability("example.com", ln.Addr().String())
 			if tt.wantErr && err == nil {
 				t.Errorf("expected an error but got none")
 			}
@@ -163,7 +163,7 @@ func TestArgParsing(t *testing.T) {
 
 	// No args
 	_, stderr := captureOutput(t, func() {
-		code := runCLI([]string{})
+		code := RunCLI([]string{})
 		if code == 0 {
 			t.Error("Expected non-zero code with no args")
 		}
@@ -175,7 +175,7 @@ func TestArgParsing(t *testing.T) {
 	// Arg but no --whois
 	flag.CommandLine = flag.NewFlagSet("TestArgParsingNoWhois", flag.ContinueOnError)
 	_, stderr = captureOutput(t, func() {
-		code := runCLI([]string{"somefile.json"})
+		code := RunCLI([]string{"somefile.json"})
 		if code == 0 {
 			t.Error("Expected non-zero code if whois is missing")
 		}
@@ -197,7 +197,7 @@ func TestInputFileReadError(t *testing.T) {
 	defer helperRemoveAll(t, tmpDir)
 
 	_, stderr := captureOutput(t, func() {
-		code := runCLI([]string{"--whois=127.0.0.1:9999", "--sleep=0s", tmpDir})
+		code := RunCLI([]string{"--whois=127.0.0.1:9999", "--sleep=0s", tmpDir})
 		if code == 0 {
 			t.Errorf("Expected non-zero code for read error")
 		}
@@ -223,7 +223,7 @@ func TestInputFileParseError(t *testing.T) {
 	helperClose(t, tmpFile, "tmpFile close for parse error test")
 
 	_, stderr := captureOutput(t, func() {
-		code := runCLI([]string{"--whois=127.0.0.1:9999", "--sleep=0s", tmpFile.Name()})
+		code := RunCLI([]string{"--whois=127.0.0.1:9999", "--sleep=0s", tmpFile.Name()})
 		if code == 0 {
 			t.Errorf("Expected non-zero code for JSON parse error")
 		}
@@ -272,7 +272,7 @@ func TestMainNonGrouped(t *testing.T) {
 	}()
 
 	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{
+		code := RunCLI([]string{
 			"--whois=" + ln.Addr().String(),
 			"--sleep=0s",
 			tmp.Name(),
@@ -348,7 +348,7 @@ func TestFileWriteError(t *testing.T) {
 	}()
 
 	_, stderr := captureOutput(t, func() {
-		code := runCLI([]string{
+		code := RunCLI([]string{
 			"--whois=" + ln.Addr().String(),
 			"--sleep=0s",
 			tmp.Name(),
@@ -398,7 +398,7 @@ func TestMainVerbose(t *testing.T) {
 	}()
 
 	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{
+		code := RunCLI([]string{
 			"--verbose",
 			"--whois=" + ln.Addr().String(),
 			"--sleep=0s",
@@ -473,7 +473,7 @@ func TestMainErrorCase(t *testing.T) {
 	}()
 
 	_, stderr := captureOutput(t, func() {
-		code := runCLI([]string{
+		code := RunCLI([]string{
 			"--whois=" + ln.Addr().String(),
 			"--sleep=0s",
 			tmp.Name(),
@@ -563,7 +563,7 @@ func TestMainGroupedNoFile(t *testing.T) {
 	}()
 
 	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{
+		code := RunCLI([]string{
 			"--grouped-output",
 			"--whois=" + ln.Addr().String(),
 			"--sleep=0s",
@@ -656,7 +656,7 @@ func TestMainGroupedWithFile(t *testing.T) {
 	}()
 
 	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{
+		code := RunCLI([]string{
 			"--grouped-output",
 			"--output-file=" + groupedFile.Name(),
 			"--whois=" + ln.Addr().String(),
@@ -742,7 +742,7 @@ func TestMainGroupedFileEmptyExisting(t *testing.T) {
 	}()
 
 	_, stderr := captureOutput(t, func() {
-		code := runCLI([]string{
+		code := RunCLI([]string{
 			"--grouped-output",
 			"--output-file=" + groupedFile.Name(),
 			"--whois=" + ln.Addr().String(),
@@ -868,7 +868,7 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 
 	// 4. Run Talia with --grouped-output and the same groupedFile a first time
 	_, _ = captureOutput(t, func() {
-		exitCodeFirst := runCLI([]string{
+		exitCodeFirst := RunCLI([]string{
 			"--grouped-output",
 			"--output-file=" + groupedFile.Name(),
 			"--whois=" + ln.Addr().String(),
@@ -876,13 +876,13 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 			inputFile.Name(),
 		})
 		if exitCodeFirst != 0 {
-			t.Fatalf("First runCLI failed with code=%d", exitCodeFirst)
+			t.Fatalf("First RunCLI failed with code=%d", exitCodeFirst)
 		}
 	})
 
 	// 5. Re-run with the same EXACT input
 	_, _ = captureOutput(t, func() {
-		exitCodeSecond := runCLI([]string{
+		exitCodeSecond := RunCLI([]string{
 			"--grouped-output",
 			"--output-file=" + groupedFile.Name(),
 			"--whois=" + ln.Addr().String(),
@@ -890,7 +890,7 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 			inputFile.Name(),
 		})
 		if exitCodeSecond != 0 {
-			t.Fatalf("Second runCLI failed with code=%d", exitCodeSecond)
+			t.Fatalf("Second RunCLI failed with code=%d", exitCodeSecond)
 		}
 	})
 
@@ -976,14 +976,14 @@ func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 	}()
 
 	_, _ = captureOutput(t, func() {
-		exitCode := runCLI([]string{
+		exitCode := RunCLI([]string{
 			"--grouped-output",
 			"--whois=" + ln.Addr().String(),
 			"--sleep=0s",
 			inputFile.Name(),
 		})
 		if exitCode != 0 {
-			t.Fatalf("runCLI failed with code=%d", exitCode)
+			t.Fatalf("RunCLI failed with code=%d", exitCode)
 		}
 	})
 
@@ -1033,7 +1033,7 @@ func TestCheckDomainAvailability_DialError(t *testing.T) {
 	// Use a port that is presumably not open.
 	addr := "127.0.0.1:1"
 
-	available, reason, logData, err := checkDomainAvailability("faildial.com", addr)
+	available, reason, logData, err := CheckDomainAvailability("faildial.com", addr)
 	if err == nil {
 		t.Errorf("Expected error from net.Dial, got nil")
 	}
@@ -1069,7 +1069,7 @@ func TestCheckDomainAvailability_ReadError(t *testing.T) {
 		}
 	}()
 
-	_, reason, _, err2 := checkDomainAvailability("partialread.com", ln.Addr().String())
+	_, reason, _, err2 := CheckDomainAvailability("partialread.com", ln.Addr().String())
 	if err2 == nil || reason != ReasonError {
 		t.Skipf("could not trigger partial read error; err=%v reason=%s", err2, reason)
 	}
@@ -1091,7 +1091,7 @@ func TestReplaceDomain_NotFound(t *testing.T) {
 }
 
 func TestWriteGroupedFile_EmptyPath(t *testing.T) {
-	err := writeGroupedFile("", GroupedData{})
+	err := WriteGroupedFile("", GroupedData{})
 	if err != nil {
 		t.Errorf("Expected nil error if path==\"\", got %v", err)
 	}
@@ -1110,9 +1110,9 @@ func TestWriteGroupedFile_NewFile(t *testing.T) {
 		Available: []GroupedDomain{{Domain: "newavail.com", Reason: ReasonNoMatch}},
 	}
 
-	err = writeGroupedFile(tmpPath, gData)
+	err = WriteGroupedFile(tmpPath, gData)
 	if err != nil {
-		t.Fatalf("writeGroupedFile returned error: %v", err)
+		t.Fatalf("WriteGroupedFile returned error: %v", err)
 	}
 
 	raw, _ := os.ReadFile(tmpPath)
@@ -1150,9 +1150,9 @@ func TestWriteGroupedFile_ParseArrayFallback(t *testing.T) {
 		},
 	}
 
-	err = writeGroupedFile(tmpFile.Name(), newest)
+	err = WriteGroupedFile(tmpFile.Name(), newest)
 	if err != nil {
-		t.Fatalf("writeGroupedFile error: %v", err)
+		t.Fatalf("WriteGroupedFile error: %v", err)
 	}
 
 	finalRaw, _ := os.ReadFile(tmpFile.Name())
@@ -1207,14 +1207,14 @@ func testWriteGroupedFileWithInterface(path string, data interface{}) error {
 	return nil
 }
 
-// NEW TEST #1: Directly test convertArrayToGrouped
+// NEW TEST #1: Directly test ConvertArrayToGrouped
 func TestConvertArrayToGrouped(t *testing.T) {
 	arr := []DomainRecord{
 		{Domain: "test1.com", Available: true, Reason: ReasonNoMatch, Log: "log1"},
 		{Domain: "test2.com", Available: false, Reason: ReasonTaken, Log: "log2"},
 		{Domain: "test3.com", Available: false, Reason: ReasonError, Log: "log3"},
 	}
-	g := convertArrayToGrouped(arr)
+	g := ConvertArrayToGrouped(arr)
 	if len(g.Available) != 1 {
 		t.Errorf("expected 1 in available, got %d", len(g.Available))
 	}
@@ -1240,7 +1240,7 @@ func TestConvertArrayToGrouped(t *testing.T) {
 	}
 }
 
-// NEW TEST #2: Directly test writeGroupedFile when existing file is valid grouped JSON
+// NEW TEST #2: Directly test WriteGroupedFile when existing file is valid grouped JSON
 func TestWriteGroupedFile_ExistingGrouped(t *testing.T) {
 	tmp, err := os.CreateTemp("", "existing_grouped_*.json")
 	if err != nil {
@@ -1266,8 +1266,8 @@ func TestWriteGroupedFile_ExistingGrouped(t *testing.T) {
 			{Domain: "newunavail.com", Reason: ReasonError},
 		},
 	}
-	if err := writeGroupedFile(tmp.Name(), newData); err != nil {
-		t.Fatalf("writeGroupedFile: %v", err)
+	if err := WriteGroupedFile(tmp.Name(), newData); err != nil {
+		t.Fatalf("WriteGroupedFile: %v", err)
 	}
 
 	finalRaw, _ := os.ReadFile(tmp.Name())
@@ -1305,7 +1305,7 @@ func TestWriteGroupedFile_ExistingGrouped(t *testing.T) {
 	}
 }
 
-// NEW TEST #3: Test runCLIGroupedInput scenario WITHOUT --grouped-output (forces overwrite of the same file)
+// NEW TEST #3: Test RunCLIGroupedInput scenario WITHOUT --grouped-output (forces overwrite of the same file)
 func TestRunCLIGroupedInput_Overwrite(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestRunCLIGroupedInput_Overwrite", flag.ContinueOnError)
 
@@ -1350,10 +1350,10 @@ func TestRunCLIGroupedInput_Overwrite(t *testing.T) {
 		}
 	}()
 
-	// call runCLI with NO --grouped-output => runCLI sees grouped JSON, calls runCLIGroupedInput,
+	// call RunCLI with NO --grouped-output => RunCLI sees grouped JSON, calls RunCLIGroupedInput,
 	// which sets finalOutputFile = inputPath if !groupedOutput.
 	_, _ = captureOutput(t, func() {
-		code := runCLI([]string{
+		code := RunCLI([]string{
 			"--whois=" + ln.Addr().String(),
 			"--sleep=0s",
 			tmpFile.Name(),
@@ -1429,7 +1429,7 @@ func TestMainGroupedFileWithUnverifiedInput_SeparateOutput(t *testing.T) {
 
 	// Run with grouped-output + separate --output-file
 	stdout, stderr := captureOutput(t, func() {
-		code := runCLI([]string{
+		code := RunCLI([]string{
 			"--grouped-output",
 			"--output-file=" + outFileName,
 			"--whois=" + ln.Addr().String(),
@@ -1482,7 +1482,7 @@ func TestWriteGroupedFile_CorruptExisting(t *testing.T) {
 	}
 
 	// Should fail with parse grouped file
-	err = writeGroupedFile(tmp.Name(), newest)
+	err = WriteGroupedFile(tmp.Name(), newest)
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
