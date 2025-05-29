@@ -10,12 +10,15 @@ permissions:
 
 jobs:
   release:
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
 
     steps:
-      - uses: google-github-actions/release-please-action@v4
+      - uses: googleapis/release-please-action@v4
         id: rp
         with:
           release-type: go
