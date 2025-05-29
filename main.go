@@ -62,7 +62,11 @@ func checkDomainAvailability(domain, server string) (bool, AvailabilityReason, s
 		logMsg := fmt.Sprintf("failed to connect to WHOIS: %v", err)
 		return false, ReasonError, logMsg, fmt.Errorf("failed to connect to WHOIS: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if cerr := conn.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "connection close error: %v\n", cerr)
+		}
+	}()
 
 	// Send the domain
 	_, _ = fmt.Fprintf(conn, "%s\r\n", domain)
