@@ -32,12 +32,12 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 
 	go func() {
 		var buf bytes.Buffer
-		io.Copy(&buf, rOut)
+		_, _ = io.Copy(&buf, rOut) //nolint:errcheck // pipe closes when test ends
 		outCh <- buf.String()
 	}()
 	go func() {
 		var buf bytes.Buffer
-		io.Copy(&buf, rErr)
+		_, _ = io.Copy(&buf, rErr) //nolint:errcheck
 		errCh <- buf.String()
 	}()
 
@@ -61,8 +61,8 @@ func TestCheckDomainAvailability(t *testing.T) {
 		{
 			name: "No match => available=TRUE, reason=NO_MATCH",
 			serverHandler: func(c net.Conn) {
-				io.Copy(io.Discard, c)
-				io.WriteString(c, "No match for example.com\n")
+				_, _ = io.Copy(io.Discard, c)                          //nolint:errcheck
+				_, _ = io.WriteString(c, "No match for example.com\n") //nolint:errcheck
 				c.Close()
 			},
 			wantAvailable: true,
@@ -71,8 +71,8 @@ func TestCheckDomainAvailability(t *testing.T) {
 		{
 			name: "Domain found => available=FALSE, reason=TAKEN",
 			serverHandler: func(c net.Conn) {
-				io.Copy(io.Discard, c)
-				io.WriteString(c, "Domain Name: something.com\n")
+				_, _ = io.Copy(io.Discard, c)                            //nolint:errcheck
+				_, _ = io.WriteString(c, "Domain Name: something.com\n") //nolint:errcheck
 				c.Close()
 			},
 			wantAvailable: false,
@@ -91,7 +91,7 @@ func TestCheckDomainAvailability(t *testing.T) {
 			name: "Empty response => reason=ERROR",
 			serverHandler: func(c net.Conn) {
 				// Send no data
-				io.Copy(io.Discard, c)
+				_, _ = io.Copy(io.Discard, c) //nolint:errcheck
 				c.Close()
 			},
 			wantAvailable: false,
@@ -193,7 +193,9 @@ func TestInputFileParseError(t *testing.T) {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	tmpFile.WriteString("{\"domain\": \"test.com\", ") // incomplete
+	if _, err := tmpFile.WriteString("{\"domain\": \"test.com\", "); err != nil { // incomplete
+		t.Fatalf("write malformed JSON: %v", err)
+	}
 	tmpFile.Close()
 
 	_, stderr := captureOutput(t, func() {
@@ -223,7 +225,7 @@ func TestMainNonGrouped(t *testing.T) {
 	}
 	js, _ := json.MarshalIndent(domains, "", "  ")
 	if _, err := tmp.Write(js); err != nil {
-		t.Fatalf("Failed writing to temp file: %v", err)
+		t.Fatalf("write temp JSON: %v", err)
 	}
 	tmp.Close()
 
@@ -239,8 +241,8 @@ func TestMainNonGrouped(t *testing.T) {
 			if err != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
-			io.WriteString(c, "No match for domain\n")
+			_, _ = io.Copy(io.Discard, c)                     //nolint:errcheck
+			_, _ = io.WriteString(c, "No match for domain\n") //nolint:errcheck
 			c.Close()
 		}
 	}()
@@ -262,7 +264,7 @@ func TestMainNonGrouped(t *testing.T) {
 	}
 	var updatedList []DomainRecord
 	if err := json.Unmarshal(updated, &updatedList); err != nil {
-		t.Fatalf("unmarshal updated: %v", err)
+		t.Fatalf("unmarshal updated list: %v", err)
 	}
 	if len(updatedList) != 2 {
 		t.Errorf("want 2, got %d", len(updatedList))
@@ -294,11 +296,15 @@ func TestFileWriteError(t *testing.T) {
 	// put some data
 	domains := []DomainRecord{{Domain: "test.com"}}
 	b, _ := json.Marshal(domains)
-	tmp.Write(b)
+	if _, err := tmp.Write(b); err != nil {
+		t.Fatalf("write temp data: %v", err)
+	}
 	tmp.Close()
 
 	// Make it read-only
-	os.Chmod(tmp.Name(), 0400)
+	if err := os.Chmod(tmp.Name(), 0o400); err != nil {
+		t.Fatalf("chmod temp file: %v", err)
+	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -311,8 +317,8 @@ func TestFileWriteError(t *testing.T) {
 			if err != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
-			io.WriteString(c, "No match for domain\n")
+			_, _ = io.Copy(io.Discard, c)                     //nolint:errcheck
+			_, _ = io.WriteString(c, "No match for domain\n") //nolint:errcheck
 			c.Close()
 		}
 	}()
@@ -344,7 +350,9 @@ func TestMainVerbose(t *testing.T) {
 
 	domains := []DomainRecord{{Domain: "verbose1.com"}}
 	js, _ := json.MarshalIndent(domains, "", "  ")
-	tmp.Write(js)
+	if _, err := tmp.Write(js); err != nil {
+		t.Fatalf("write temp JSON: %v", err)
+	}
 	tmp.Close()
 
 	// WHOIS => "No match for"
@@ -359,8 +367,8 @@ func TestMainVerbose(t *testing.T) {
 			if err != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
-			io.WriteString(c, "No match for domain\n")
+			_, _ = io.Copy(io.Discard, c)                     //nolint:errcheck
+			_, _ = io.WriteString(c, "No match for domain\n") //nolint:errcheck
 			c.Close()
 		}
 	}()
@@ -382,7 +390,9 @@ func TestMainVerbose(t *testing.T) {
 		t.Fatalf("read updated: %v", err)
 	}
 	var updatedList []DomainRecord
-	json.Unmarshal(updated, &updatedList)
+	if err := json.Unmarshal(updated, &updatedList); err != nil {
+		t.Fatalf("unmarshal updated list: %v", err)
+	}
 	if len(updatedList) != 1 {
 		t.Errorf("want 1 domain, got %d", len(updatedList))
 	}
@@ -406,7 +416,9 @@ func TestMainErrorCase(t *testing.T) {
 		{Domain: "ok2.com"},
 	}
 	js, _ := json.MarshalIndent(domains, "", "  ")
-	tmp.Write(js)
+	if _, err := tmp.Write(js); err != nil {
+		t.Fatalf("write temp JSON: %v", err)
+	}
 	tmp.Close()
 
 	// First conn => immediate close => error, second => "No match for"
@@ -425,11 +437,11 @@ func TestMainErrorCase(t *testing.T) {
 			}
 			func(conn net.Conn) {
 				defer conn.Close()
-				io.Copy(io.Discard, conn)
+				_, _ = io.Copy(io.Discard, conn) //nolint:errcheck
 				if counter == 0 {
 					// Immediate close => error
 				} else {
-					io.WriteString(conn, "No match for domain\n")
+					_, _ = io.WriteString(conn, "No match for domain\n") //nolint:errcheck
 				}
 				counter++
 			}(c)
@@ -457,7 +469,7 @@ func TestMainErrorCase(t *testing.T) {
 	}
 	var updatedList []DomainRecord
 	if err := json.Unmarshal(updated, &updatedList); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+		t.Fatalf("unmarshal updated list: %v", err)
 	}
 	if len(updatedList) != 2 {
 		t.Errorf("want 2, got %d", len(updatedList))
@@ -495,7 +507,9 @@ func TestMainGroupedNoFile(t *testing.T) {
 		{Domain: "g2.com"},
 	}
 	js, _ := json.MarshalIndent(domains, "", "  ")
-	tmp.Write(js)
+	if _, err := tmp.Write(js); err != nil {
+		t.Fatalf("write temp JSON: %v", err)
+	}
 	tmp.Close()
 
 	// WHOIS => first => no match => available, second => domain => taken
@@ -513,11 +527,11 @@ func TestMainGroupedNoFile(t *testing.T) {
 			}
 			func(conn net.Conn) {
 				defer conn.Close()
-				io.Copy(io.Discard, conn)
+				_, _ = io.Copy(io.Discard, conn) //nolint:errcheck
 				if i == 0 {
-					io.WriteString(conn, "No match for domain\n")
+					_, _ = io.WriteString(conn, "No match for domain\n") //nolint:errcheck
 				} else {
-					io.WriteString(conn, "Domain Name: something.com\n")
+					_, _ = io.WriteString(conn, "Domain Name: something.com\n") //nolint:errcheck
 				}
 				i++
 			}(c)
@@ -565,7 +579,9 @@ func TestMainGroupedWithFile(t *testing.T) {
 
 	domains := []DomainRecord{{Domain: "merge-test1.com"}, {Domain: "merge-test2.com"}}
 	data, _ := json.MarshalIndent(domains, "", "  ")
-	inputFile.Write(data)
+	if _, err := inputFile.Write(data); err != nil {
+		t.Fatalf("write input JSON: %v", err)
+	}
 	inputFile.Close()
 
 	// Existing grouped file (non-empty) with 1 domain
@@ -584,7 +600,9 @@ func TestMainGroupedWithFile(t *testing.T) {
 		},
 	}
 	egBytes, _ := json.MarshalIndent(existingGrouped, "", "  ")
-	groupedFile.Write(egBytes)
+	if _, err := groupedFile.Write(egBytes); err != nil {
+		t.Fatalf("write grouped JSON: %v", err)
+	}
 	groupedFile.Close()
 
 	// WHOIS => first => no match => available, second => found => unavailable
@@ -602,11 +620,11 @@ func TestMainGroupedWithFile(t *testing.T) {
 			}
 			func(c net.Conn) {
 				defer c.Close()
-				io.Copy(io.Discard, c)
+				_, _ = io.Copy(io.Discard, c) //nolint:errcheck
 				if i == 0 {
-					io.WriteString(c, "No match for domain\n")
+					_, _ = io.WriteString(c, "No match for domain\n") //nolint:errcheck
 				} else {
-					io.WriteString(c, "Domain Name: found-something\n")
+					_, _ = io.WriteString(c, "Domain Name: found-something\n") //nolint:errcheck
 				}
 				i++
 			}(conn)
@@ -632,7 +650,9 @@ func TestMainGroupedWithFile(t *testing.T) {
 		t.Fatalf("read input: %v", err)
 	}
 	var inCheck []DomainRecord
-	json.Unmarshal(inRaw, &inCheck)
+	if err := json.Unmarshal(inRaw, &inCheck); err != nil {
+		t.Fatalf("unmarshal inCheck: %v", err)
+	}
 	for _, r := range inCheck {
 		if r.Available || r.Reason != "" {
 			t.Errorf("expected no changes in input JSON, found reason=%s", r.Reason)
@@ -671,7 +691,9 @@ func TestMainGroupedFileEmptyExisting(t *testing.T) {
 
 	domains := []DomainRecord{{Domain: "empty-existing-1.com"}}
 	data, _ := json.MarshalIndent(domains, "", "  ")
-	inputFile.Write(data)
+	if _, err := inputFile.Write(data); err != nil {
+		t.Fatalf("write input JSON: %v", err)
+	}
 	inputFile.Close()
 
 	// Create an empty grouped file
@@ -690,8 +712,8 @@ func TestMainGroupedFileEmptyExisting(t *testing.T) {
 	defer ln.Close()
 	go func() {
 		c, _ := ln.Accept()
-		io.Copy(io.Discard, c)
-		io.WriteString(c, "No match for domain\n")
+		_, _ = io.Copy(io.Discard, c)                     //nolint:errcheck
+		_, _ = io.WriteString(c, "No match for domain\n") //nolint:errcheck
 		c.Close()
 	}()
 
@@ -769,7 +791,9 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 		{Domain: "append-2.com"},
 	}
 	b, _ := json.Marshal(doms)
-	inputFile.Write(b)
+	if _, err := inputFile.Write(b); err != nil {
+		t.Fatalf("write temp data: %v", err)
+	}
 	inputFile.Close()
 
 	// 2. Create/initialize an output grouped file
@@ -786,7 +810,9 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 		},
 	}
 	gfBytes, _ := json.MarshalIndent(gf, "", "  ")
-	groupedFile.Write(gfBytes)
+	if _, err := groupedFile.Write(gfBytes); err != nil {
+		t.Fatalf("write grouped file: %v", err)
+	}
 	groupedFile.Close()
 
 	// 3. Start a mock WHOIS server
@@ -805,11 +831,11 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 			if e != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
+			_, _ = io.Copy(io.Discard, c) //nolint:errcheck
 			if i%2 == 0 {
-				io.WriteString(c, "No match for domain\n")
+				_, _ = io.WriteString(c, "No match for domain\n") //nolint:errcheck
 			} else {
-				io.WriteString(c, "Domain Name: found-it\n")
+				_, _ = io.WriteString(c, "Domain Name: found-it\n") //nolint:errcheck
 			}
 			c.Close()
 			i++
@@ -894,7 +920,9 @@ func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(inputFile.Name())
-	inputFile.Write(raw)
+	if _, err := inputFile.Write(raw); err != nil {
+		t.Fatalf("write raw JSON: %v", err)
+	}
 	inputFile.Close()
 
 	// Start WHOIS server that returns "No match for" for one domain
@@ -912,11 +940,11 @@ func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 			if e != nil {
 				return
 			}
-			io.Copy(io.Discard, c)
+			_, _ = io.Copy(io.Discard, c) //nolint:errcheck
 			if i%2 == 0 {
-				io.WriteString(c, "No match for domain\n")
+				_, _ = io.WriteString(c, "No match for domain\n") //nolint:errcheck
 			} else {
-				io.WriteString(c, "Domain Name: found-something\n")
+				_, _ = io.WriteString(c, "Domain Name: found-something\n") //nolint:errcheck
 			}
 			c.Close()
 			i++
@@ -1008,10 +1036,10 @@ func TestCheckDomainAvailability_ReadError(t *testing.T) {
 	go func() {
 		conn, _ := ln.Accept()
 		if conn != nil {
-			conn.Write([]byte("Partial WHOIS data..."))
+			_, _ = conn.Write([]byte("Partial WHOIS data...")) //nolint:errcheck
 			if tcp, ok := conn.(*net.TCPConn); ok {
 				// Attempt to force an RST packet
-				tcp.SetLinger(0)
+				_ = tcp.SetLinger(0) //nolint:errcheck
 			}
 			conn.Close()
 		}
@@ -1067,7 +1095,9 @@ func TestWriteGroupedFile_NewFile(t *testing.T) {
 	defer os.Remove(tmpPath)
 
 	var out GroupedData
-	json.Unmarshal(raw, &out)
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal out: %v", err)
+	}
 	if len(out.Available) != 1 || out.Available[0].Domain != "newavail.com" {
 		t.Errorf("Expected domain newavail.com in available, got %+v", out)
 	}
@@ -1085,7 +1115,9 @@ func TestWriteGroupedFile_ParseArrayFallback(t *testing.T) {
 		{Domain: "arrdomain2.com", Available: false, Reason: ReasonTaken},
 	}
 	raw, _ := json.Marshal(arr)
-	tmpFile.Write(raw)
+	if _, err := tmpFile.Write(raw); err != nil {
+		t.Fatalf("write raw JSON: %v", err)
+	}
 	tmpFile.Close()
 
 	newest := GroupedData{
@@ -1101,7 +1133,9 @@ func TestWriteGroupedFile_ParseArrayFallback(t *testing.T) {
 
 	finalRaw, _ := os.ReadFile(tmpFile.Name())
 	var final GroupedData
-	json.Unmarshal(finalRaw, &final)
+	if err := json.Unmarshal(finalRaw, &final); err != nil {
+		t.Fatalf("unmarshal final: %v", err)
+	}
 
 	if len(final.Available) != 2 {
 		t.Errorf("Expected 2 available, got %d: %#v", len(final.Available), final.Available)
@@ -1195,7 +1229,9 @@ func TestWriteGroupedFile_ExistingGrouped(t *testing.T) {
 		Unavailable: []GroupedDomain{{Domain: "oldunavail.com", Reason: ReasonTaken}},
 	}
 	oldBytes, _ := json.Marshal(existing)
-	tmp.Write(oldBytes)
+	if _, err := tmp.Write(oldBytes); err != nil {
+		t.Fatalf("write old bytes: %v", err)
+	}
 	tmp.Close()
 
 	newData := GroupedData{
@@ -1269,7 +1305,9 @@ func TestRunCLIGroupedInput_Overwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(tmpFile.Name())
-	tmpFile.Write(b)
+	if _, err := tmpFile.Write(b); err != nil {
+		t.Fatalf("write grouped JSON: %v", err)
+	}
 	tmpFile.Close()
 
 	// Start WHOIS => "Domain Name: found-something" => taken
@@ -1282,8 +1320,8 @@ func TestRunCLIGroupedInput_Overwrite(t *testing.T) {
 	go func() {
 		c, _ := ln.Accept()
 		if c != nil {
-			io.Copy(io.Discard, c)
-			io.WriteString(c, "Domain Name: found-something\n")
+			_, _ = io.Copy(io.Discard, c)                              //nolint:errcheck
+			_, _ = io.WriteString(c, "Domain Name: found-something\n") //nolint:errcheck
 			c.Close()
 		}
 	}()
@@ -1344,7 +1382,9 @@ func TestMainGroupedFileWithUnverifiedInput_SeparateOutput(t *testing.T) {
 	}
 	inputFile, _ := os.CreateTemp("", "unverified_separate_input_*.json")
 	defer os.Remove(inputFile.Name())
-	json.NewEncoder(inputFile).Encode(ext)
+	if err := json.NewEncoder(inputFile).Encode(ext); err != nil {
+		t.Fatalf("encode ext JSON: %v", err)
+	}
 	inputFile.Close()
 
 	// Output file (distinct from input)
@@ -1358,8 +1398,8 @@ func TestMainGroupedFileWithUnverifiedInput_SeparateOutput(t *testing.T) {
 	defer ln.Close()
 	go func() {
 		c, _ := ln.Accept()
-		io.Copy(io.Discard, c)
-		io.WriteString(c, "Domain Name: found-something\n")
+		_, _ = io.Copy(io.Discard, c)                              //nolint:errcheck
+		_, _ = io.WriteString(c, "Domain Name: found-something\n") //nolint:errcheck
 		c.Close()
 	}()
 
@@ -1389,7 +1429,9 @@ func TestMainGroupedFileWithUnverifiedInput_SeparateOutput(t *testing.T) {
 	// The outFile should now contain unverified => gone, domain => "need-check.com" in .Unavailable
 	data, _ := os.ReadFile(outFileName)
 	var final ExtendedGroupedData
-	json.Unmarshal(data, &final)
+	if err := json.Unmarshal(data, &final); err != nil {
+		t.Fatalf("unmarshal out: %v", err)
+	}
 	if len(final.Unverified) != 0 {
 		t.Errorf("Expected unverified=0, got %d", len(final.Unverified))
 	}
@@ -1406,7 +1448,9 @@ func TestWriteGroupedFile_CorruptExisting(t *testing.T) {
 	defer os.Remove(tmp.Name())
 
 	// Write invalid JSON that fails parse as GroupedData & DomainRecord array
-	tmp.WriteString(`{"not_valid": `) // truncated, invalid
+	if _, err := tmp.WriteString(`{"not_valid": `); err != nil {
+		t.Fatalf("write corrupt JSON: %v", err)
+	}
 	tmp.Close()
 
 	newest := GroupedData{
