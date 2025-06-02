@@ -184,6 +184,8 @@ func RunCLI(args []string) int {
 	verbose := fs.Bool("verbose", false, "Include WHOIS log in 'log' field even for successful checks")
 	groupedOutput := fs.Bool("grouped-output", false, "Enable grouped output (JSON object with 'available','unavailable')")
 	outputFile := fs.String("output-file", "", "Path to grouped output file (if set, input file remains unmodified)")
+	suggest := fs.Int("suggest", 0, "Number of domain suggestions to generate (if >0, no WHOIS checks are run)")
+	prompt := fs.String("prompt", "", "Optional prompt to influence domain suggestions")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
@@ -194,6 +196,20 @@ func RunCLI(args []string) int {
 		fmt.Fprintf(os.Stderr, "Usage: %s --whois=<server:port> [--sleep=2s] [--verbose] [--grouped-output] [--output-file=path] <json-file>\n", fs.Name())
 		return 1
 	}
+	if *suggest > 0 {
+		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), *prompt, *suggest)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
+			return 1
+		}
+		if err := writeSuggestionsFile(fs.Arg(0), list); err != nil {
+			fmt.Fprintln(os.Stderr, "Error writing suggestions file:", err)
+			return 1
+		}
+		fmt.Println("Wrote domain suggestions to", fs.Arg(0))
+		return 0
+	}
+
 	if *whoisServer == "" {
 		fmt.Fprintln(os.Stderr, "Error: --whois=<server:port> is required")
 		return 1

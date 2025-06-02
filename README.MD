@@ -128,6 +128,28 @@ By default, Talia sleeps 2 seconds (`--sleep=2s`) between each domain WHOIS quer
 
 As shown above, `--sleep` changes how long Talia waits between domain checks.
 
+### Generating Domain Suggestions
+
+Use the `--suggest` flag to create a JSON file containing domain ideas without
+running any WHOIS checks. The result is written in the same grouped format with
+an `"unverified"` array so you can immediately feed it back into Talia for
+checking.
+
+    OPENAI_API_KEY=... ./talia --suggest=5 --prompt="three word tech names" suggestions.json
+
+The file `suggestions.json` will contain:
+
+```json
+{
+  "unverified": [
+    { "domain": "..." }
+  ]
+}
+```
+
+You can then run Talia with `--whois` against this file to verify the suggested
+domains.
+
 ### Verbose Mode
 
 By default, Talia only writes the WHOIS response to the `"log"` field if there's an error. If you set `--verbose`, Talia stores the full WHOIS response for every domain:
