@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -1090,6 +1091,15 @@ func TestReplaceDomain_NotFound(t *testing.T) {
 	}
 }
 
+func TestReplaceDomain_Found(t *testing.T) {
+	original := []DomainRecord{{Domain: "d.com", Available: false}}
+	newRec := DomainRecord{Domain: "d.com", Available: true}
+	replaceDomain(original, newRec)
+	if !original[0].Available {
+		t.Error("domain record was not replaced")
+	}
+}
+
 func TestWriteGroupedFile_EmptyPath(t *testing.T) {
 	err := WriteGroupedFile("", GroupedData{})
 	if err != nil {
@@ -1488,5 +1498,292 @@ func TestWriteGroupedFile_CorruptExisting(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "parse grouped file") {
 		t.Errorf("Expected parse grouped file error, got %v", err)
+	}
+}
+
+func TestRunCLIGroupedInput_WriteError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			_, _ = io.Copy(io.Discard, conn)
+			_, _ = io.WriteString(conn, "No match for domain")
+			helperClose(nil, conn, "conn")
+		}
+	}()
+
+	dir := t.TempDir()
+	ext := ExtendedGroupedData{Unverified: []DomainRecord{{Domain: "a.com"}}}
+	_, stderr := captureOutput(t, func() {
+		code := RunCLIGroupedInput(ln.Addr().String(), "input.json", ext, 0, false, true, dir)
+		if code == 0 {
+			t.Error("expected non-zero exit")
+		}
+	})
+	if !strings.Contains(stderr, "Error writing grouped JSON") {
+		t.Errorf("missing write error, got %s", stderr)
+	}
+}
+
+func TestRunCLIDomainArray_GroupedSuccess(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+	go func() {
+		c, _ := ln.Accept()
+		if c != nil {
+			_, _ = io.Copy(io.Discard, c)
+			_, _ = io.WriteString(c, "No match for domain")
+			helperClose(nil, c, "conn")
+		}
+	}()
+
+	outFile := filepath.Join(t.TempDir(), "out.json")
+	domains := []DomainRecord{{Domain: "a.com"}}
+	_, stderr := captureOutput(t, func() {
+		code := RunCLIDomainArray(ln.Addr().String(), "in.json", domains, 0, false, true, outFile)
+		if code != 0 {
+			t.Fatalf("expected exit 0, got %d", code)
+		}
+	})
+	if stderr != "" {
+		t.Errorf("unexpected stderr: %s", stderr)
+	}
+	data, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("read outFile: %v", err)
+	}
+	if !strings.Contains(string(data), "a.com") {
+		t.Errorf("output file missing domain: %s", string(data))
+	}
+}
+
+func TestRunCLIDomainArray_GroupedOverwrite(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			_, _ = io.Copy(io.Discard, conn)
+			_, _ = io.WriteString(conn, "No match for domain")
+			helperClose(nil, conn, "conn")
+		}
+	}()
+
+	inputFile, err := os.CreateTemp("", "input_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperRemove(t, inputFile.Name())
+	if err := inputFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	domains := []DomainRecord{{Domain: "a.com"}}
+	stdout, stderr := captureOutput(t, func() {
+		code := RunCLIDomainArray(ln.Addr().String(), inputFile.Name(), domains, 0, false, true, "")
+		if code != 0 {
+			t.Fatalf("expected exit 0, got %d", code)
+		}
+	})
+	if stderr != "" {
+		t.Errorf("unexpected stderr: %s", stderr)
+	}
+	if !strings.Contains(stdout, "overwrote input") {
+		t.Errorf("missing overwrite message: %s", stdout)
+	}
+	data, err := os.ReadFile(inputFile.Name())
+	if err != nil {
+		t.Fatalf("read input file: %v", err)
+	}
+	if !strings.Contains(string(data), "available") {
+		t.Errorf("expected grouped JSON in file, got %s", string(data))
+	}
+}
+
+func TestRunCLIDomainArray_WriteGroupedError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			_, _ = io.Copy(io.Discard, conn)
+			_, _ = io.WriteString(conn, "No match for domain")
+			helperClose(nil, conn, "conn")
+		}
+	}()
+
+	dir := t.TempDir()
+	domains := []DomainRecord{{Domain: "a.com"}}
+	_, stderr := captureOutput(t, func() {
+		code := RunCLIDomainArray(ln.Addr().String(), "in.json", domains, 0, false, true, dir)
+		if code == 0 {
+			t.Error("expected non-zero exit")
+		}
+	})
+	if !strings.Contains(stderr, "Error writing grouped file") {
+		t.Errorf("expected grouped file error, got %s", stderr)
+	}
+}
+
+func TestRunCLIDomainArray_ErrorHandling(t *testing.T) {
+	domains := []DomainRecord{{Domain: "err.com"}}
+	tmp, err := os.CreateTemp("", "err_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperRemove(t, tmp.Name())
+	if err := tmp.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _ := captureOutput(t, func() {
+		code := RunCLIDomainArray("127.0.0.1:1", tmp.Name(), domains, 0, true, false, "")
+		if code != 0 {
+			t.Fatalf("expected exit 0, got %d", code)
+		}
+	})
+	if !strings.Contains(stdout, "err.com") {
+		t.Errorf("missing check output")
+	}
+	data, _ := os.ReadFile(tmp.Name())
+	var out []DomainRecord
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out[0].Reason != ReasonError || out[0].Available {
+		t.Errorf("unexpected record: %+v", out[0])
+	}
+	if out[0].Log == "" {
+		t.Error("expected log for error case")
+	}
+}
+
+func TestRunCLIDomainArray_WriteInputDirError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			_, _ = io.Copy(io.Discard, conn)
+			_, _ = io.WriteString(conn, "No match for domain")
+			helperClose(nil, conn, "conn")
+		}
+	}()
+
+	dir := t.TempDir()
+	code := RunCLIDomainArray(ln.Addr().String(), dir, []DomainRecord{{Domain: "a.com"}}, 0, false, false, "")
+	if code == 0 {
+		t.Error("expected non-zero code")
+	}
+}
+
+func TestRunCLIDomainArray_GroupedOverwriteWriteError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+	go func() {
+		c, _ := ln.Accept()
+		if c != nil {
+			_, _ = io.Copy(io.Discard, c)
+			_, _ = io.WriteString(c, "No match for domain")
+			helperClose(nil, c, "conn")
+		}
+	}()
+
+	dir := t.TempDir()
+	code := RunCLIDomainArray(ln.Addr().String(), dir, []DomainRecord{{Domain: "a.com"}}, 0, false, true, "")
+	if code == 0 {
+		t.Error("expected non-zero code")
+	}
+}
+
+func TestRunCLIGroupedInput_Verbose(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			_, _ = io.Copy(io.Discard, conn)
+			_, _ = io.WriteString(conn, "No match for domain")
+			helperClose(nil, conn, "conn")
+		}
+	}()
+
+	tmpFile := filepath.Join(t.TempDir(), "out.json")
+	ext := ExtendedGroupedData{Unverified: []DomainRecord{{Domain: "a.com"}}}
+	_, _ = captureOutput(t, func() {
+		code := RunCLIGroupedInput(ln.Addr().String(), tmpFile, ext, 0, true, true, tmpFile)
+		if code != 0 {
+			t.Fatalf("expected 0, got %d", code)
+		}
+	})
+	data, _ := os.ReadFile(tmpFile)
+	var out ExtendedGroupedData
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(out.Available) != 1 || out.Available[0].Log == "" {
+		t.Errorf("expected log stored, got %+v", out)
+	}
+}
+
+func TestMergeGrouped(t *testing.T) {
+	existing := GroupedData{
+		Available:   []GroupedDomain{{Domain: "a.com", Reason: ReasonNoMatch}},
+		Unavailable: []GroupedDomain{{Domain: "b.com", Reason: ReasonTaken}},
+	}
+	newest := GroupedData{
+		Available:   []GroupedDomain{{Domain: "b.com", Reason: ReasonNoMatch}},
+		Unavailable: []GroupedDomain{{Domain: "c.com", Reason: ReasonTaken}},
+	}
+	merged := mergeGrouped(existing, newest)
+	if len(merged.Available) != 2 || len(merged.Unavailable) != 1 {
+		t.Fatalf("unexpected counts %#v", merged)
+	}
+	haveA, haveBAvail, haveCUnavail := false, false, false
+	for _, d := range merged.Available {
+		if d.Domain == "a.com" {
+			haveA = true
+		}
+		if d.Domain == "b.com" {
+			haveBAvail = true
+		}
+	}
+	for _, d := range merged.Unavailable {
+		if d.Domain == "c.com" {
+			haveCUnavail = true
+		}
+	}
+	if !haveA || !haveBAvail || !haveCUnavail {
+		t.Fatalf("merge results incorrect %#v", merged)
+	}
+}
+
+func TestWriteGroupedFile_ReadError(t *testing.T) {
+	dir := t.TempDir()
+	err := WriteGroupedFile(dir, GroupedData{Available: []GroupedDomain{{Domain: "x.com"}}})
+	if err == nil || !strings.Contains(err.Error(), "read grouped file") {
+		t.Fatalf("expected read error, got %v", err)
 	}
 }

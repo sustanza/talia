@@ -6,6 +6,8 @@ import (
 	"github.com/sustanza/talia"
 )
 
+var exitFunc = os.Exit
+
 func main() {
-	os.Exit(talia.RunCLI(os.Args[1:]))
+	exitFunc(talia.RunCLI(os.Args[1:]))
 }
