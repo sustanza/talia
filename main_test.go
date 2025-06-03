@@ -1775,7 +1775,7 @@ func TestMergeGrouped(t *testing.T) {
 			haveCUnavail = true
 		}
 	}
-	if !(haveA && haveBAvail && haveCUnavail) {
+	if !haveA || !haveBAvail || !haveCUnavail {
 		t.Fatalf("merge results incorrect %#v", merged)
 	}
 }
