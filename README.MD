@@ -1,5 +1,9 @@
 # Talia
 
+[![CI](https://github.com/sustanza/talia/actions/workflows/ci.yml/badge.svg)](https://github.com/sustanza/talia/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/sustanza/talia?logo=github&sort=semver)](https://github.com/sustanza/talia/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/sustanza/talia.svg)](https://pkg.go.dev/github.com/sustanza/talia)
+
 Talia is a lightweight command-line application for checking the availability of domains (e.g. `.com`) by querying a user-specified WHOIS server. It processes a JSON file containing domain records and updates them with WHOIS responses (availability, reason, logs), or optionally produces a separate grouped output.
 
 ## Table of Contents
@@ -263,6 +267,8 @@ Talia's test suite covers:
 - **`--verbose`**: Store WHOIS data in `"log"` even for successful checks
 - **`--grouped-output`**: Switch to grouped output
 - **`--output-file=<path>`**: If provided, Talia merges/writes grouped JSON to this file and leaves the input alone
+- **`--suggest=<n>`**: Generate <n> domain suggestions instead of running WHOIS checks
+- **`--prompt=<text>`**: Optional text to influence domain suggestion themes
 - **`--model=<name>`**: OpenAI model to use when generating suggestions
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains
 
@@ -274,3 +280,7 @@ Pull requests are welcome. All commits must follow the Conventional Commits
 specification so that automated release tooling can parse them correctly.
 A commit lint check runs in CI to enforce this format. Example prefix types
 include `feat`, `fix`, `chore`, and `docs`.
+
+## License
+
+This project is licensed under the terms of the [MIT License](LICENSE).
