@@ -65,6 +65,9 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 
 	info, err := os.Stat(path)
 	if err == nil && info.Size() > 0 {
+		if info.IsDir() {
+			return fmt.Errorf("read grouped file: %s is a directory", path)
+		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read grouped file: %w", err)
@@ -77,6 +80,8 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 				return fmt.Errorf("parse grouped file: %w", err)
 			}
 		}
+	} else if err == nil && info.IsDir() {
+		return fmt.Errorf("read grouped file: %s is a directory", path)
 	}
 
 	merged := mergeGrouped(existing, newest)

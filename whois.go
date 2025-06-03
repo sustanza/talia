@@ -39,9 +39,18 @@ func (c NetWhoisClient) Lookup(domain string) (string, error) {
 
 	data, err := io.ReadAll(conn)
 	if err != nil && err != io.EOF {
+		// Treat connection reset by peer and similar errors as empty WHOIS response
+		errStr := err.Error()
+		if strings.Contains(errStr, "connection reset by peer") || strings.Contains(errStr, "broken pipe") || strings.Contains(errStr, "connection closed") {
+			return "", fmt.Errorf("empty WHOIS response")
+		}
 		return "", fmt.Errorf("read error: %w", err)
 	}
 	if len(data) == 0 {
+		return "", fmt.Errorf("empty WHOIS response")
+	}
+	// If the connection was closed before any data was sent, treat as empty
+	if err == io.EOF && len(data) == 0 {
 		return "", fmt.Errorf("empty WHOIS response")
 	}
 	return string(data), nil
