@@ -2,6 +2,9 @@ package talia
 
 import (
 	"errors"
+	"io"
+	"net"
+	"strings"
 	"testing"
 )
 
@@ -58,5 +61,57 @@ func TestCheckDomainAvailabilityWithClient(t *testing.T) {
 				t.Errorf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestNetWhoisClientLookupSuccess(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			_, _ = io.Copy(io.Discard, conn)
+			_, _ = io.WriteString(conn, "Hello")
+			helperClose(nil, conn, "conn")
+		}
+	}()
+
+	c := NetWhoisClient{Server: ln.Addr().String()}
+	resp, err := c.Lookup("example.com")
+	if err != nil {
+		t.Fatalf("Lookup error: %v", err)
+	}
+	if resp != "Hello" {
+		t.Fatalf("got %q want %q", resp, "Hello")
+	}
+}
+
+func TestNetWhoisClientLookupDialError(t *testing.T) {
+	c := NetWhoisClient{Server: "127.0.0.1:1"}
+	if _, err := c.Lookup("example.com"); err == nil {
+		t.Fatal("expected dial error, got nil")
+	}
+}
+
+func TestNetWhoisClientLookupEmpty(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			helperClose(nil, conn, "conn")
+		}
+	}()
+
+	c := NetWhoisClient{Server: ln.Addr().String()}
+	_, err = c.Lookup("example.com")
+	if err == nil || !strings.Contains(err.Error(), "empty WHOIS") {
+		t.Fatalf("expected empty response error, got %v", err)
 	}
 }

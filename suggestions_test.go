@@ -2,6 +2,7 @@ package talia
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -177,5 +178,93 @@ func TestRunCLISuggestModelFlag(t *testing.T) {
 
 	if gotModel != "my-model" {
 		t.Fatalf("server received model %q, want %q", gotModel, "my-model")
+	}
+}
+
+func TestGenerateDomainSuggestionsNoAPIKey(t *testing.T) {
+	_, err := GenerateDomainSuggestions("", "", 1)
+	if err == nil || err.Error() != "OPENAI_API_KEY is not set" {
+		t.Fatalf("expected OPENAI_API_KEY error, got %v", err)
+	}
+}
+
+type errClient struct{}
+
+func (errClient) Do(*http.Request) (*http.Response, error) {
+	return nil, errors.New("boom")
+}
+
+func TestGenerateDomainSuggestionsRequestError(t *testing.T) {
+	suggestionHTTPClient = errClient{}
+	t.Cleanup(func() { suggestionHTTPClient = http.DefaultClient })
+	_, err := GenerateDomainSuggestions("key", "", 1)
+	if err == nil || !strings.Contains(err.Error(), "openai request") {
+		t.Fatalf("expected openai request error, got %v", err)
+	}
+}
+
+func TestGenerateDomainSuggestionsDecodeError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "not-json")
+	}))
+	defer srv.Close()
+	suggestionHTTPClient = fakeHTTPClient{srv}
+	openAIBase = srv.URL
+	t.Cleanup(func() {
+		suggestionHTTPClient = http.DefaultClient
+		openAIBase = "https://api.openai.com/v1"
+	})
+	_, err := GenerateDomainSuggestions("key", "", 1)
+	if err == nil || !strings.Contains(err.Error(), "decode response") {
+		t.Fatalf("expected decode error, got %v", err)
+	}
+}
+
+func TestGenerateDomainSuggestionsNoChoices(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"choices":[]}`)
+	}))
+	defer srv.Close()
+	suggestionHTTPClient = fakeHTTPClient{srv}
+	openAIBase = srv.URL
+	t.Cleanup(func() {
+		suggestionHTTPClient = http.DefaultClient
+		openAIBase = "https://api.openai.com/v1"
+	})
+	_, err := GenerateDomainSuggestions("key", "", 1)
+	if err == nil || !strings.Contains(err.Error(), "no choices") {
+		t.Fatalf("expected no choices error, got %v", err)
+	}
+}
+
+func TestGenerateDomainSuggestionsUnmarshalError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"not-json"}}}]}`)
+	}))
+	defer srv.Close()
+	suggestionHTTPClient = fakeHTTPClient{srv}
+	openAIBase = srv.URL
+	t.Cleanup(func() {
+		suggestionHTTPClient = http.DefaultClient
+		openAIBase = "https://api.openai.com/v1"
+	})
+	_, err := GenerateDomainSuggestions("key", "", 1)
+	if err == nil || !strings.Contains(err.Error(), "unmarshal structured output") {
+		t.Fatalf("expected unmarshal error, got %v", err)
+	}
+}
+
+func TestWriteSuggestionsFile_Error(t *testing.T) {
+	dir, err := os.MkdirTemp("", "dir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperRemoveAll(t, dir)
+	err = writeSuggestionsFile(dir, []DomainRecord{{Domain: "a.com"}})
+	if err == nil {
+		t.Fatal("expected error writing to directory, got nil")
 	}
 }
