@@ -24,10 +24,10 @@ func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
 	// fake OpenAI server
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// return structured output JSON
-		io.Copy(io.Discard, r.Body)
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"a.com\"}]}"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"a.com\"}]}"}}}]}`)
 	}))
 	defer srv.Close()
 
@@ -68,10 +68,10 @@ func TestGenerateDomainSuggestionsHTTPError(t *testing.T) {
 
 func TestRunCLISuggest(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.Copy(io.Discard, r.Body)
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"b.com\"}]}"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"b.com\"}]}"}}}]}`)
 	}))
 	defer srv.Close()
 
@@ -86,11 +86,22 @@ func TestRunCLISuggest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp.Close()
+	err = tmp.Close()
+	if err != nil {
+		t.Fatalf("tmp.Close() error: %v", err)
+	}
 	defer helperRemove(t, tmp.Name())
 
-	os.Setenv("OPENAI_API_KEY", "key")
-	defer os.Unsetenv("OPENAI_API_KEY")
+	err = os.Setenv("OPENAI_API_KEY", "key")
+	if err != nil {
+		t.Fatalf("os.Setenv error: %v", err)
+	}
+	defer func() {
+		err := os.Unsetenv("OPENAI_API_KEY")
+		if err != nil {
+			t.Fatalf("os.Unsetenv error: %v", err)
+		}
+	}()
 
 	stdout, stderr := captureOutput(t, func() {
 		code := RunCLI([]string{"--suggest=1", tmp.Name()})
