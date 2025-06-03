@@ -2,12 +2,18 @@ name: CI
 on:
   push:
     branches: ["*"]
+  pull_request:
 
 jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Lint Commits
+        uses: wagoid/commitlint-github-action@v5
+        with:
+          configFile: .commitlintrc.json
 
       - uses: actions/setup-go@v5
         with:

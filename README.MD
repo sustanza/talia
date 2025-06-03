@@ -264,3 +264,12 @@ Talia's test suite covers:
 - **`--grouped-output`**: Switch to grouped output
 - **`--output-file=<path>`**: If provided, Talia merges/writes grouped JSON to this file and leaves the input alone
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains
+
+---
+
+## Contributing
+
+Pull requests are welcome. All commits must follow the Conventional Commits
+specification so that automated release tooling can parse them correctly.
+A commit lint check runs in CI to enforce this format. Example prefix types
+include `feat`, `fix`, `chore`, and `docs`.
