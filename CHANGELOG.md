@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/sustanza/talia/compare/v1.1.0...v1.2.0) (2025-06-03)
+
+
+### Features
+
+* adds AI domain generation ([#11](https://github.com/sustanza/talia/issues/11)) ([08830e9](https://github.com/sustanza/talia/commit/08830e9291d8d8f070b9077e3a21773c1cb48928))
+
 ## [1.1.0](https://github.com/sustanza/talia/compare/v1.0.0...v1.1.0) (2025-05-29)
 
 
