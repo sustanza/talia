@@ -128,6 +128,41 @@ By default, Talia sleeps 2 seconds (`--sleep=2s`) between each domain WHOIS quer
 
 As shown above, `--sleep` changes how long Talia waits between domain checks.
 
+### Generating Domain Suggestions
+
+Talia can use AI (OpenAI or compatible APIs) to generate domain name ideas. This feature requires an **OpenAI API key** and internet access.
+
+- **API Key Requirement:** Set the `OPENAI_API_KEY` environment variable with your OpenAI API key. See [OpenAI API documentation](https://platform.openai.com/docs/api-reference/authentication) for details on obtaining a key.
+- **Network Access:** The machine running Talia must be able to reach the OpenAI API endpoint.
+
+Use the `--suggest` flag to create a JSON file containing domain ideas without running any WHOIS checks. The result is written in the same grouped format with an `"unverified"` array so you can immediately feed it back into Talia for checking.
+
+    OPENAI_API_KEY=... ./talia --suggest=5 --prompt="three word tech names ending in .com" suggestions.json
+
+**Important:** Talia will instruct the AI to only return domain names ending in `.com`. If the AI still returns domains without `.com`, Talia will not automatically fix them. You may need to adjust your prompt or manually add `.com` to the results. This will become more flexible for other TLDs in the future.
+
+**Example output (`suggestions.json`):**
+
+```json
+{
+  "unverified": [
+    { "domain": "techtriplewave.com" },
+    { "domain": "cloudbytefusion.com" },
+    { "domain": "datastreampulse.com" },
+    { "domain": "logicmeshzone.com" },
+    { "domain": "pixelcorelabs.com" }
+  ]
+}
+```
+
+You can then run Talia with `--whois` against this file to verify the suggested domains:
+
+    ./talia --whois=whois.example.com:43 suggestions.json
+
+**If the API key is missing or the OpenAI request fails,** Talia will print an error and exit without writing suggestions.
+
+**Tip:** You can add new suggestions to an existing grouped file by appending to the `"unverified"` array, then re-running Talia to check them.
+
 ### Verbose Mode
 
 By default, Talia only writes the WHOIS response to the `"log"` field if there's an error. If you set `--verbose`, Talia stores the full WHOIS response for every domain:
