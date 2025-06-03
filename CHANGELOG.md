@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/sustanza/talia/compare/v1.3.0...v1.3.1) (2025-06-03)
+
+
+### Bug Fixes
+
+* **whois:** handle connection errors and treat as empty WHOIS response ([210ba94](https://github.com/sustanza/talia/commit/210ba94cca76ae26a91e437d312ce0cf102f5b5e))
+
 ## [1.3.0](https://github.com/sustanza/talia/compare/v1.2.0...v1.3.0) (2025-06-03)
 
 
