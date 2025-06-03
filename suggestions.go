@@ -13,7 +13,7 @@ const (
 	defaultOpenAIBase  = "https://api.openai.com/v1"
 	systemPrompt       = "You generate domain name ideas. All domain names must end with .com. Do not return any domain without .com."
 	userPromptTemplate = "%s Return %d unique domain suggestions in the 'unverified' array. Each domain must end with .com. Do not return any domain without .com."
-	openAIModel        = "gpt-4o"
+	defaultOpenAIModel = "gpt-4o"
 	functionName       = "suggest_domains"
 	functionDesc       = "Generate domain name ideas."
 )
@@ -34,6 +34,7 @@ type httpDoer interface {
 var (
 	suggestionHTTPClient httpDoer = http.DefaultClient
 	openAIBase                    = defaultOpenAIBase
+	openAIModel                   = defaultOpenAIModel
 )
 
 // GenerateDomainSuggestions contacts the OpenAI API using structured output
