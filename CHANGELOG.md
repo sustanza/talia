@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/sustanza/talia/compare/v1.2.0...v1.3.0) (2025-06-03)
+
+
+### Features
+
+* **cli:** rename model flag ([#15](https://github.com/sustanza/talia/issues/15)) ([eed20b2](https://github.com/sustanza/talia/commit/eed20b2e041f4469741db6c7cd536ff30509745c))
+
 ## [1.2.0](https://github.com/sustanza/talia/compare/v1.1.0...v1.2.0) (2025-06-03)
 
 
