@@ -186,11 +186,14 @@ func RunCLI(args []string) int {
 	outputFile := fs.String("output-file", "", "Path to grouped output file (if set, input file remains unmodified)")
 	suggest := fs.Int("suggest", 0, "Number of domain suggestions to generate (if >0, no WHOIS checks are run)")
 	prompt := fs.String("prompt", "", "Optional prompt to influence domain suggestions")
+	model := fs.String("model", defaultOpenAIModel, "OpenAI model to use for suggestions")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
 		return 1
 	}
+
+	openAIModel = *model
 
 	if fs.NArg() < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: %s --whois=<server:port> [--sleep=2s] [--verbose] [--grouped-output] [--output-file=path] <json-file>\n", fs.Name())

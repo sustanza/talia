@@ -126,3 +126,56 @@ func TestRunCLISuggest(t *testing.T) {
 		t.Fatalf("unexpected file contents: %+v", out)
 	}
 }
+
+func TestRunCLISuggestModelFlag(t *testing.T) {
+	var gotModel string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var payload map[string]any
+		_ = json.Unmarshal(b, &payload)
+		if v, ok := payload["model"].(string); ok {
+			gotModel = v
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"c.com\"}]}"}}}]}`)
+	}))
+	defer srv.Close()
+
+	suggestionHTTPClient = fakeHTTPClient{srv}
+	openAIBase = srv.URL
+	t.Cleanup(func() {
+		suggestionHTTPClient = http.DefaultClient
+		openAIBase = "https://api.openai.com/v1"
+		openAIModel = defaultOpenAIModel
+	})
+
+	tmp, err := os.CreateTemp("", "sugg_model_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("tmp.Close() error: %v", err)
+	}
+	defer helperRemove(t, tmp.Name())
+
+	if err := os.Setenv("OPENAI_API_KEY", "key"); err != nil {
+		t.Fatalf("os.Setenv error: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
+			t.Fatalf("os.Unsetenv error: %v", err)
+		}
+	}()
+
+	_, _ = captureOutput(t, func() {
+		code := RunCLI([]string{"--suggest=1", "--model=my-model", tmp.Name()})
+		if code != 0 {
+			t.Errorf("expected exit 0, got %d", code)
+		}
+	})
+
+	if gotModel != "my-model" {
+		t.Fatalf("server received model %q, want %q", gotModel, "my-model")
+	}
+}
