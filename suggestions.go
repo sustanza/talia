@@ -9,6 +9,15 @@ import (
 	"os"
 )
 
+const (
+	defaultOpenAIBase  = "https://api.openai.com/v1"
+	systemPrompt       = "You generate domain name ideas. All domain names must end with .com. Do not return any domain without .com."
+	userPromptTemplate = "%s Return %d unique domain suggestions in the 'unverified' array. Each domain must end with .com. Do not return any domain without .com."
+	openAIModel        = "gpt-4o"
+	functionName       = "suggest_domains"
+	functionDesc       = "Generate domain name ideas."
+)
+
 // suggestionSchema defines the JSON structure returned by OpenAI when
 // generating domain suggestions. It matches the ExtendedGroupedData
 // format used by Talia so the suggestions can be fed back into the
@@ -24,7 +33,7 @@ type httpDoer interface {
 
 var (
 	suggestionHTTPClient httpDoer = http.DefaultClient
-	openAIBase                    = "https://api.openai.com/v1"
+	openAIBase                    = defaultOpenAIBase
 )
 
 // GenerateDomainSuggestions contacts the OpenAI API using structured output
@@ -37,41 +46,39 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 
 	ctx := context.Background()
 
-	// Build minimal JSON schema for structured output.
-	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"unverified": map[string]any{
-				"type": "array",
-				"items": map[string]any{
-					"type":       "object",
-					"properties": map[string]any{"domain": map[string]any{"type": "string"}},
-					"required":   []string{"domain"},
+	// Define the function schema for OpenAI function calling
+	functions := []map[string]any{
+		{
+			"name":        functionName,
+			"description": functionDesc,
+			"parameters": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"unverified": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"domain": map[string]any{"type": "string"},
+							},
+							"required": []string{"domain"},
+						},
+					},
 				},
+				"required":             []string{"unverified"},
+				"additionalProperties": false,
 			},
 		},
-		"required":             []string{"unverified"},
-		"additionalProperties": false,
-	}
-	schemaBytes, err := json.Marshal(schema)
-	if err != nil {
-		return nil, fmt.Errorf("marshal schema: %w", err)
 	}
 
 	body := map[string]any{
-		"model": "gpt-4o", // default model name
+		"model": openAIModel,
 		"messages": []map[string]string{
-			{"role": "system", "content": "You generate domain name ideas."},
-			{"role": "user", "content": fmt.Sprintf("%s Return %d unique domain suggestions in the 'unverified' array.", prompt, count)},
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": fmt.Sprintf(userPromptTemplate, prompt, count)},
 		},
-		"response_format": map[string]any{
-			"type": "json_schema",
-			"json_schema": map[string]any{
-				"name":   "suggestionSchema",
-				"schema": string(schemaBytes),
-				"strict": true,
-			},
-		},
+		"functions":     functions,
+		"function_call": map[string]string{"name": functionName},
 	}
 
 	payload, err := json.Marshal(body)
@@ -98,7 +105,10 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 	var openaiResp struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				FunctionCall struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function_call"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
@@ -110,7 +120,7 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 	}
 
 	var out suggestionSchema
-	if err := json.Unmarshal([]byte(openaiResp.Choices[0].Message.Content), &out); err != nil {
+	if err := json.Unmarshal([]byte(openaiResp.Choices[0].Message.FunctionCall.Arguments), &out); err != nil {
 		return nil, fmt.Errorf("unmarshal structured output: %w", err)
 	}
 	return out.Unverified, nil
@@ -119,7 +129,12 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 // writeSuggestionsFile writes the suggested domains to path in the
 // ExtendedGroupedData format.
 func writeSuggestionsFile(path string, list []DomainRecord) error {
-	data := ExtendedGroupedData{Unverified: list}
+	// Remove any fields except Domain from each DomainRecord for suggestions output
+	pruned := make([]DomainRecord, 0, len(list))
+	for _, rec := range list {
+		pruned = append(pruned, DomainRecord{Domain: rec.Domain})
+	}
+	data := ExtendedGroupedData{Unverified: pruned}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err

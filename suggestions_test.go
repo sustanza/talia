@@ -27,7 +27,7 @@ func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
 		io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, `{"choices":[{"message":{"content":"{\"unverified\":[{\"domain\":\"a.com\"}]}"}}]}`)
+		io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"a.com\"}]}"}}}]}`)
 	}))
 	defer srv.Close()
 
@@ -71,7 +71,7 @@ func TestRunCLISuggest(t *testing.T) {
 		io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, `{"choices":[{"message":{"content":"{\"unverified\":[{\"domain\":\"b.com\"}]}"}}]}`)
+		io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"b.com\"}]}"}}}]}`)
 	}))
 	defer srv.Close()
 

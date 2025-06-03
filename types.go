@@ -13,7 +13,7 @@ const (
 // "available" and "reason" are overwritten by Talia in non-grouped mode.
 type DomainRecord struct {
 	Domain    string             `json:"domain"`
-	Available bool               `json:"available"`
+	Available bool               `json:"available,omitempty"`
 	Reason    AvailabilityReason `json:"reason,omitempty"`
 	Log       string             `json:"log,omitempty"`
 }
