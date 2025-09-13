@@ -19,8 +19,11 @@
 
 ## Coding Style & Naming Conventions
 - Go formatting is mandatory: run `make fmt` before PRs.
-- Follow https://google.github.io/styleguide/go/.
+ - Follow https://google.github.io/styleguide/go/. In case of conflict, the Google Go Style Guide takes precedence. golangci-lint enforces a compatible superset of these rules (see `.golangci.yml`).
 - Lint is enforced by `golangci-lint` (see `.golangci.yml`); fix or justify findings.
+ - Exported identifiers require doc comments that start with the identifier name and are full sentences.
+ - Receiver names are short and derived from the type (e.g., `t`, `ri`, `w`, `s`).
+ - Avoid repeating the receiver or package in function/method names; keep names concise and unambiguous.
 
 ## Testing Guidelines
 - Use table-driven tests in `*_test.go` (standard `testing`). Add edge/error cases.
@@ -29,10 +32,11 @@
 - Integration tests (if any) should use `-tags=integration` and run via `make test-integration`.
 
 ## Design & Compatibility
-- Interface-first design: define or extend interfaces for new externals before implementation.
+- Prefer concrete types; define small interfaces in the consumer package only when needed (e.g., for mocking or multiple implementations). Avoid interface-first design.
 - Maintain backward compatibility for both input formats: array of domain records and grouped JSON (with optional `unverified`). If changing schemas, update types in `types.go` and migration logic.
 - When writing grouped results, prefer `WriteGroupedFile` to merge with existing data.
 - If adding flags or outputs, update usage in `cmd/talia/main.go`, `README.MD`, and Makefile examples.
+ - Treat `nil` and zero-length slices as empty in APIs; use `len(s) == 0` to check emptiness.
 
 ## Commit & Pull Request Guidelines
 - Use Conventional Commits; enforced by commitlint. Allowed types include: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `style`, `revert`.
@@ -41,7 +45,8 @@
 
 ## Security & Configuration Tips
 - Never commit secrets. For domain suggestions, set `OPENAI_API_KEY` in your environment (not in code).
-- OpenAI base URL/model are package variables; keep them overrideable for tests.
+- Avoid mutable package-level variables; pass configuration via parameters or a `Config`/options type. For tests, inject dependencies rather than mutate globals.
 
 ## Tools
 - Use GH CLI for all git operations, unless otherwise specified.
+- Use the web for official documentation and context7 MCP for documentation and context retrieval.
