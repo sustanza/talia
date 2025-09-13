@@ -74,7 +74,7 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	return <-outCh, <-errCh
 }
 
-// TestCheckDomainAvailability covers basic WHOIS availability checks
+// TestCheckDomainAvailability covers basic WHOIS availability checks.
 func TestCheckDomainAvailability(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -158,7 +158,7 @@ func TestCheckDomainAvailability(t *testing.T) {
 	}
 }
 
-// TestArgParsing checks we fail if no arguments or if whois is missing
+// TestArgParsing checks we fail if no arguments or if whois is missing.
 func TestArgParsing(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestArgParsing", flag.ContinueOnError)
 
@@ -186,7 +186,7 @@ func TestArgParsing(t *testing.T) {
 	}
 }
 
-// TestInputFileReadError ensures we fail if input file can't be read
+// TestInputFileReadError ensures we fail if input file can't be read.
 func TestInputFileReadError(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestInputFileReadError", flag.ContinueOnError)
 
@@ -208,7 +208,7 @@ func TestInputFileReadError(t *testing.T) {
 	}
 }
 
-// TestInputFileParseError ensures we fail on malformed JSON
+// TestInputFileParseError ensures we fail on malformed JSON.
 func TestInputFileParseError(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestInputFileParseError", flag.ContinueOnError)
 
@@ -234,7 +234,7 @@ func TestInputFileParseError(t *testing.T) {
 	}
 }
 
-// TestMainNonGrouped verifies inline updates in non-grouped mode
+// TestMainNonGrouped verifies inline updates in non-grouped mode.
 func TestMainNonGrouped(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainNonGrouped", flag.ContinueOnError)
 
@@ -304,7 +304,7 @@ func TestMainNonGrouped(t *testing.T) {
 	}
 }
 
-// TestFileWriteError ensures we fail if we can't write the input file in non-grouped mode
+// TestFileWriteError ensures we fail if we can't write the input file in non-grouped mode.
 func TestFileWriteError(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestFileWriteError", flag.ContinueOnError)
 
@@ -363,7 +363,7 @@ func TestFileWriteError(t *testing.T) {
 	}
 }
 
-// TestMainVerbose checks if verbose logs are stored for successful checks
+// TestMainVerbose checks if verbose logs are stored for successful checks.
 func TestMainVerbose(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainVerbose", flag.ContinueOnError)
 
@@ -426,7 +426,7 @@ func TestMainVerbose(t *testing.T) {
 	}
 }
 
-// TestMainErrorCase verifies that if one domain triggers an error, we still proceed
+// TestMainErrorCase verifies that if one domain triggers an error, we still proceed.
 func TestMainErrorCase(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainErrorCase", flag.ContinueOnError)
 
@@ -517,7 +517,7 @@ func TestMainErrorCase(t *testing.T) {
 	}
 }
 
-// TestMainGroupedNoFile overwrites input JSON with a grouped object
+// TestMainGroupedNoFile overwrites input JSON with a grouped object.
 func TestMainGroupedNoFile(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainGroupedNoFile", flag.ContinueOnError)
 
@@ -591,7 +591,7 @@ func TestMainGroupedNoFile(t *testing.T) {
 	}
 }
 
-// TestMainGroupedWithFile merges results into a separate grouped file
+// TestMainGroupedWithFile merges results into a separate grouped file.
 func TestMainGroupedWithFile(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainGroupedWithFile", flag.ContinueOnError)
 
@@ -703,7 +703,7 @@ func TestMainGroupedWithFile(t *testing.T) {
 	}
 }
 
-// TestMainGroupedFileEmptyExisting ensures no crash if grouped file is empty
+// TestMainGroupedFileEmptyExisting ensures no crash if grouped file is empty.
 func TestMainGroupedFileEmptyExisting(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainGroupedFileEmptyExisting", flag.ContinueOnError)
 
@@ -776,7 +776,7 @@ func TestMainGroupedFileEmptyExisting(t *testing.T) {
 	}
 }
 
-// TestDomainRecordStructure ensures JSON keys remain stable
+// TestDomainRecordStructure ensures JSON keys remain stable.
 func TestDomainRecordStructure(t *testing.T) {
 	dr := DomainRecord{
 		Domain:    "example.com",
@@ -800,7 +800,7 @@ func TestDomainRecordStructure(t *testing.T) {
 	}
 }
 
-// TestMainGroupedFileRepeatedAppend tests that we can append multiple times to the same grouped file
+// TestMainGroupedFileRepeatedAppend tests that we can append multiple times to the same grouped file.
 func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainGroupedFileRepeatedAppend", flag.ContinueOnError)
 
@@ -920,7 +920,7 @@ func TestMainGroupedFileRepeatedAppend(t *testing.T) {
 	}
 }
 
-// TestMainGroupedFileWithUnverifiedInput tests using a grouped file with unverified domains as input
+// TestMainGroupedFileWithUnverifiedInput tests using a grouped file with unverified domains as input.
 func TestMainGroupedFileWithUnverifiedInput(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestMainGroupedFileWithUnverifiedInput", flag.ContinueOnError)
 
@@ -1049,7 +1049,7 @@ func TestCheckDomainAvailability_DialError(t *testing.T) {
 	}
 }
 
-// TestCheckDomainAvailability_ReadError tries to trigger a partial read error
+// TestCheckDomainAvailability_ReadError tries to trigger a partial read error.
 func TestCheckDomainAvailability_ReadError(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1205,7 +1205,7 @@ func TestWriteGroupedFile_MarshalError(t *testing.T) {
 	}
 }
 
-// Minimal clone that forcibly calls json.MarshalIndent on 'data'
+// Minimal clone that forcibly calls json.MarshalIndent on 'data'.
 func testWriteGroupedFileWithInterface(path string, data interface{}) error {
 	out, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
@@ -1217,7 +1217,7 @@ func testWriteGroupedFileWithInterface(path string, data interface{}) error {
 	return nil
 }
 
-// NEW TEST #1: Directly test ConvertArrayToGrouped
+// NEW TEST #1: Directly test ConvertArrayToGrouped.
 func TestConvertArrayToGrouped(t *testing.T) {
 	arr := []DomainRecord{
 		{Domain: "test1.com", Available: true, Reason: ReasonNoMatch, Log: "log1"},
@@ -1250,7 +1250,7 @@ func TestConvertArrayToGrouped(t *testing.T) {
 	}
 }
 
-// NEW TEST #2: Directly test WriteGroupedFile when existing file is valid grouped JSON
+// NEW TEST #2: Directly test WriteGroupedFile when existing file is valid grouped JSON.
 func TestWriteGroupedFile_ExistingGrouped(t *testing.T) {
 	tmp, err := os.CreateTemp("", "existing_grouped_*.json")
 	if err != nil {
@@ -1315,7 +1315,7 @@ func TestWriteGroupedFile_ExistingGrouped(t *testing.T) {
 	}
 }
 
-// NEW TEST #3: Test RunCLIGroupedInput scenario WITHOUT --grouped-output (forces overwrite of the same file)
+// NEW TEST #3: Test RunCLIGroupedInput scenario WITHOUT --grouped-output (forces overwrite of the same file).
 func TestRunCLIGroupedInput_Overwrite(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet("TestRunCLIGroupedInput_Overwrite", flag.ContinueOnError)
 

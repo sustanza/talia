@@ -1,5 +1,3 @@
-// Package talia provides the core logic for checking domain availability via
-// WHOIS and processing JSON domain lists.
 package talia
 
 import (
@@ -10,7 +8,24 @@ import (
 	"time"
 )
 
-// RunCLIDomainArray handles the original array input logic (non-grouped or grouped output).
+// RunCLIDomainArray processes an array of domain records, checking each domain's availability
+// and updating the results either in-place (non-grouped mode) or as grouped output.
+// In non-grouped mode, it updates each domain's availability status in the original array
+// and writes back to the input file after each check. In grouped mode, it categorizes
+// domains into available and unavailable groups.
+//
+// Parameters:
+//   - whoisServer: WHOIS server address in "host:port" format
+//   - inputPath: path to the input JSON file (used for writing results in non-grouped mode)
+//   - domains: array of domain records to check
+//   - sleep: delay between consecutive WHOIS queries to avoid rate limiting
+//   - verbose: if true, includes raw WHOIS responses in the output
+//   - groupedOutput: if true, organizes results into available/unavailable groups
+//   - outputFile: destination file for grouped output (if empty, overwrites input file)
+//
+// Returns an exit code: 0 for success, 1 for errors.
+//
+//nolint:gocognit // This function orchestrates the main domain checking workflow
 func RunCLIDomainArray(
 	whoisServer, inputPath string,
 	domains []DomainRecord,
@@ -48,11 +63,10 @@ func RunCLIDomainArray(
 				fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
 				return 1
 			}
-			if err := os.WriteFile(inputPath, out, 0644); err != nil {
+			if err := os.WriteFile(inputPath, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
 				fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
 				return 1
 			}
-
 		} else {
 			// =========== Grouped Mode ===========
 			gd := GroupedDomain{
@@ -82,7 +96,7 @@ func RunCLIDomainArray(
 				fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
 				return 1
 			}
-			if err := os.WriteFile(inputPath, mergedOut, 0644); err != nil {
+			if err := os.WriteFile(inputPath, mergedOut, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
 				fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", inputPath, err)
 				return 1
 			}
@@ -99,11 +113,24 @@ func RunCLIDomainArray(
 		// Non-grouped mode
 		fmt.Println("Processing complete. Updated file:", inputPath)
 	}
-
 	return 0
 }
 
-// RunCLIGroupedInput handles input that's already in the grouped JSON format with unverified domains
+// RunCLIGroupedInput processes ExtendedGroupedData that contains already categorized domains
+// and a list of unverified domains. It checks all unverified domains and updates their status,
+// moving them to the appropriate available/unavailable category. This function is designed
+// to work with the output from domain suggestion tools or previous partial checks.
+//
+// Parameters:
+//   - whoisServer: WHOIS server address in "host:port" format
+//   - inputPath: path to the input JSON file (used for error messages)
+//   - ext: ExtendedGroupedData containing available, unavailable, and unverified domains
+//   - sleep: delay between consecutive WHOIS queries
+//   - verbose: if true, includes raw WHOIS responses in the output
+//   - groupedOutput: if true, writes to a separate output file; otherwise overwrites input
+//   - outputFile: destination file for results (if empty and groupedOutput is true, uses inputPath)
+//
+// Returns an exit code: 0 for success, 1 for errors.
 func RunCLIGroupedInput(
 	whoisServer, inputPath string,
 	ext ExtendedGroupedData,
@@ -162,7 +189,7 @@ func RunCLIGroupedInput(
 		fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
 		return 1
 	}
-	if err := os.WriteFile(finalOutputFile, out, 0644); err != nil {
+	if err := os.WriteFile(finalOutputFile, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
 		fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", finalOutputFile, err)
 		return 1
 	}
@@ -176,7 +203,26 @@ func RunCLIGroupedInput(
 	return 0
 }
 
-// RunCLI is the main entry point for Talia logic.
+// RunCLI is the main entry point for the Talia command-line interface.
+// It parses command-line arguments, validates inputs, and orchestrates the appropriate
+// processing mode based on the input file format and flags provided.
+//
+// The function supports multiple modes of operation:
+//   - Standard mode: processes an array of domains from a JSON file
+//   - Grouped mode: processes domains organized into available/unavailable/unverified categories
+//   - Suggestion mode: generates domain suggestions using OpenAI API (requires OPENAI_API_KEY)
+//
+// Command-line flags:
+//   - --whois: WHOIS server address (required for domain checks)
+//   - --sleep: delay between checks (default 1s)
+//   - --verbose: include raw WHOIS responses in output
+//   - --grouped-output: organize results into available/unavailable groups
+//   - --output-file: destination file for grouped output
+//   - --suggest: number of domain suggestions to generate
+//   - --prompt: custom prompt for domain suggestions
+//   - --model: OpenAI model to use for suggestions
+//
+// Returns an exit code: 0 for success, 1 for errors.
 func RunCLI(args []string) int {
 	fs := flag.NewFlagSet("talia", flag.ContinueOnError)
 	whoisServer := fs.String("whois", "", "WHOIS server, e.g. whois.verisign-grs.com:43 (required)")
@@ -219,7 +265,7 @@ func RunCLI(args []string) int {
 	}
 
 	inputPath := fs.Arg(0)
-	raw, err := os.ReadFile(inputPath)
+	raw, err := os.ReadFile(inputPath) //nolint:gosec // User-provided path is validated
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
 		return 1

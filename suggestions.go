@@ -26,20 +26,34 @@ type suggestionSchema struct {
 	Unverified []DomainRecord `json:"unverified"`
 }
 
-// Default HTTP client and base URL for the OpenAI API.
+// httpDoer defines the interface for HTTP client operations, allowing for easy testing
+// and mocking of HTTP requests to the OpenAI API.
 type httpDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
 var (
+	// suggestionHTTPClient is the HTTP client used for OpenAI API requests.
+	// It can be replaced for testing purposes.
 	suggestionHTTPClient httpDoer = http.DefaultClient
-	openAIBase                    = defaultOpenAIBase
-	openAIModel                   = defaultOpenAIModel
+	// openAIBase is the base URL for the OpenAI API endpoint.
+	openAIBase = defaultOpenAIBase
+	// openAIModel specifies which OpenAI model to use for generating suggestions.
+	openAIModel = defaultOpenAIModel
 )
 
-// GenerateDomainSuggestions contacts the OpenAI API using structured output
-// to get domain suggestions. The returned list can be used as the
-// "unverified" field in an ExtendedGroupedData file.
+// GenerateDomainSuggestions uses the OpenAI API to generate creative domain name suggestions
+// based on a user-provided prompt. It leverages OpenAI's function calling feature with
+// structured output to ensure suggestions are returned in the correct format. All suggested
+// domains will end with .com as enforced by the system prompt.
+//
+// Parameters:
+//   - apiKey: OpenAI API key for authentication
+//   - prompt: user's description of desired domain names (e.g., "tech startup focused on AI")
+//   - count: number of domain suggestions to generate
+//
+// Returns a slice of DomainRecord entries ready to be checked for availability,
+// or an error if the API call fails or returns invalid data.
 func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("OPENAI_API_KEY is not set")
@@ -129,8 +143,16 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 	return out.Unverified, nil
 }
 
-// writeSuggestionsFile writes the suggested domains to path in the
-// ExtendedGroupedData format.
+// writeSuggestionsFile saves domain suggestions to a JSON file in ExtendedGroupedData format.
+// The suggestions are placed in the "unverified" field, ready to be checked for availability
+// in a subsequent run. The function strips any existing availability information from the
+// domain records, keeping only the domain names to ensure a clean starting state.
+//
+// Parameters:
+//   - path: destination file path for the JSON output
+//   - list: slice of DomainRecord entries containing the suggested domains
+//
+// Returns an error if the file write operation fails.
 func writeSuggestionsFile(path string, list []DomainRecord) error {
 	// Remove any fields except Domain from each DomainRecord for suggestions output
 	pruned := make([]DomainRecord, 0, len(list))
@@ -142,5 +164,5 @@ func writeSuggestionsFile(path string, list []DomainRecord) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0644)
+	return os.WriteFile(path, b, 0644) //nolint:gosec // JSON files don't contain secrets
 }

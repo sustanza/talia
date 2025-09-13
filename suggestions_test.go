@@ -36,7 +36,7 @@ func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
 	openAIBase = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
+		openAIBase = defaultOpenAIBase
 	})
 
 	got, err := GenerateDomainSuggestions("key", "", 1)
@@ -58,7 +58,7 @@ func TestGenerateDomainSuggestionsHTTPError(t *testing.T) {
 	openAIBase = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
+		openAIBase = defaultOpenAIBase
 	})
 
 	_, err := GenerateDomainSuggestions("key", "", 1)
@@ -80,7 +80,7 @@ func TestRunCLISuggest(t *testing.T) {
 	openAIBase = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
+		openAIBase = defaultOpenAIBase
 	})
 
 	tmp, err := os.CreateTemp("", "sugg_*.json")
@@ -147,7 +147,7 @@ func TestRunCLISuggestModelFlag(t *testing.T) {
 	openAIBase = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
+		openAIBase = defaultOpenAIBase
 		openAIModel = defaultOpenAIModel
 	})
 
@@ -213,7 +213,7 @@ func TestGenerateDomainSuggestionsDecodeError(t *testing.T) {
 	openAIBase = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
+		openAIBase = defaultOpenAIBase
 	})
 	_, err := GenerateDomainSuggestions("key", "", 1)
 	if err == nil || !strings.Contains(err.Error(), "decode response") {
@@ -231,7 +231,7 @@ func TestGenerateDomainSuggestionsNoChoices(t *testing.T) {
 	openAIBase = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
+		openAIBase = defaultOpenAIBase
 	})
 	_, err := GenerateDomainSuggestions("key", "", 1)
 	if err == nil || !strings.Contains(err.Error(), "no choices") {
@@ -249,7 +249,7 @@ func TestGenerateDomainSuggestionsUnmarshalError(t *testing.T) {
 	openAIBase = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
+		openAIBase = defaultOpenAIBase
 	})
 	_, err := GenerateDomainSuggestions("key", "", 1)
 	if err == nil || !strings.Contains(err.Error(), "unmarshal structured output") {
