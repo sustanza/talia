@@ -1,0 +1,66 @@
+# Git files
+.git
+.gitignore
+
+# GitHub files
+.github/
+
+# Build artifacts
+dist/
+talia
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+coverage.out
+coverage.html
+*.test
+
+# Documentation
+*.md
+!README.MD
+!CHANGELOG.md
+!CLAUDE.md
+!LICENSE
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+
+# Go workspace
+go.work
+go.work.sum
+
+# Environment files
+.env
+.env.*
+
+# Makefile
+Makefile
+
+# GoReleaser
+.goreleaser.yml
+dist/
+
+# CI/CD
+.gitlab-ci.yml
+.travis.yml
+azure-pipelines.yml
+
+# Docker files (we don't need these in the build context)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
