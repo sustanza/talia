@@ -30,3 +30,4 @@ go.work.sum
 tmp/
 
 talia
+dist/
