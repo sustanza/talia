@@ -1,0 +1,142 @@
+# .goreleaser.yml
+# GoReleaser configuration for Talia
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: talia
+    main: ./cmd/talia
+    binary: talia
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      - goos: windows
+        goarch: arm64
+      - goos: windows
+        goarch: arm
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+      - -X main.builtBy=goreleaser
+
+archives:
+  - id: talia-archive
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.MD
+      - CHANGELOG.md
+      - CLAUDE.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^style:'
+      - '^refactor:'
+  groups:
+    - title: 'Features'
+      regexp: '^feat'
+    - title: 'Bug Fixes'
+      regexp: '^fix'
+    - title: 'Performance'
+      regexp: '^perf'
+    - title: 'Security'
+      regexp: '^security'
+
+dockers:
+  - image_templates:
+      - "ghcr.io/sustanza/{{ .ProjectName }}:{{ .Version }}"
+      - "ghcr.io/sustanza/{{ .ProjectName }}:latest"
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+      - "--label=org.opencontainers.image.description=Domain availability checker with WHOIS support"
+      - "--label=org.opencontainers.image.licenses=MIT"
+
+nfpms:
+  - id: packages
+    description: "Domain availability checker with WHOIS support"
+    homepage: "https://github.com/sustanza/talia"
+    license: "MIT"
+    maintainer: "Talia Contributors <noreply@github.com>"
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+    section: utils
+    priority: optional
+    recommends:
+      - whois
+
+brews:
+  - repository:
+      owner: sustanza
+      name: homebrew-tap
+    name: talia
+    homepage: "https://github.com/sustanza/talia"
+    description: "Domain availability checker with WHOIS support"
+    license: "MIT"
+    folder: Formula
+    test: |
+      system "#{bin}/talia --help"
+    install: |
+      bin.install "talia"
+
+release:
+  github:
+    owner: sustanza
+    name: talia
+  draft: false
+  prerelease: auto
+  name_template: "{{.ProjectName}}-v{{.Version}}"
+  header: |
+    ## Talia v{{.Version}}
+    
+    Domain availability checker with WHOIS support and OpenAI integration.
+  footer: |
+    ## Thanks!
+    
+    Thanks to all contributors for making this release possible!
+  disable: false
