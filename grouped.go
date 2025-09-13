@@ -11,10 +11,10 @@ import (
 // from 'existing'. A domain can move between available and unavailable categories based
 // on the most recent check. This function ensures no duplicate domains exist in the output.
 func mergeGrouped(existing, newest GroupedData) GroupedData {
-	domainsAvail := make(map[string]GroupedDomain)
-	for _, gd := range existing.Available {
-		domainsAvail[gd.Domain] = gd
-	}
+    domainsAvail := make(map[string]GroupedDomain)
+    for _, gd := range existing.Available {
+        domainsAvail[gd.Domain] = gd
+    }
 	domainsUnavail := make(map[string]GroupedDomain)
 	for _, gd := range existing.Unavailable {
 		domainsUnavail[gd.Domain] = gd
@@ -33,10 +33,14 @@ func mergeGrouped(existing, newest GroupedData) GroupedData {
 	for _, rec := range domainsAvail {
 		out.Available = append(out.Available, rec)
 	}
-	for _, rec := range domainsUnavail {
-		out.Unavailable = append(out.Unavailable, rec)
-	}
-	return out
+    for _, rec := range domainsUnavail {
+        out.Unavailable = append(out.Unavailable, rec)
+    }
+    // TODO(sustanza): Consider sorting output slices by domain for deterministic
+    // file diffs and stable ordering across runs.
+    // TODO(sustanza): Ensure non-nil slices when empty to avoid JSON nulls in output.
+    // Consider initializing to empty slices prior to marshal/write.
+    return out
 }
 
 // ConvertArrayToGrouped transforms a flat array of DomainRecord entries into a GroupedData
@@ -71,9 +75,9 @@ func ConvertArrayToGrouped(arr []DomainRecord) GroupedData {
 // The write operation is atomic to prevent data corruption. Returns an error if the file
 // operations fail or if the existing file contains invalid JSON.
 func WriteGroupedFile(path string, newest GroupedData) error {
-	if path == "" {
-		return nil
-	}
+    if path == "" {
+        return nil
+    }
 
 	existing := GroupedData{}
 
@@ -103,10 +107,12 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 	if err != nil {
 		return fmt.Errorf("marshal grouped data: %w", err)
 	}
-	if err := os.WriteFile(path, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
-		return fmt.Errorf("write grouped file: %w", err)
-	}
-	return nil
+    // TODO(sustanza): Perform an atomic write (write to temp + rename) as claimed by the doc comment.
+    // This avoids partial writes and is a common best practice for JSON outputs.
+    if err := os.WriteFile(path, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
+        return fmt.Errorf("write grouped file: %w", err)
+    }
+    return nil
 }
 
 // replaceDomain updates a domain record in-place within a slice of DomainRecord entries.

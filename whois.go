@@ -14,24 +14,30 @@ import (
 // implementing alternative WHOIS lookup mechanisms (e.g., REST APIs,
 // cached lookups, or mock implementations for testing).
 type WhoisClient interface {
-	// Lookup performs a WHOIS query for the specified domain and returns
-	// the raw WHOIS response. It returns an error if the lookup fails.
-	Lookup(domain string) (string, error)
+    // Lookup performs a WHOIS query for the specified domain and returns
+    // the raw WHOIS response. It returns an error if the lookup fails.
+    // TODO(sustanza): Consider adding context-aware variant (LookupContext) to allow
+    // cancellations/timeouts without relying on global deadlines.
+    Lookup(domain string) (string, error)
 }
 
 // NetWhoisClient implements WhoisClient using direct TCP connections to WHOIS servers.
 // It provides the standard method for querying WHOIS servers according to RFC 3912.
 type NetWhoisClient struct {
-	// Server specifies the WHOIS server address in "host:port" format.
-	// For example: "whois.verisign-grs.com:43" for .com domains.
-	Server string
+    // Server specifies the WHOIS server address in "host:port" format.
+    // For example: "whois.verisign-grs.com:43" for .com domains.
+    Server string
 }
 
 // Lookup performs a WHOIS query by establishing a TCP connection to the configured
 // WHOIS server, sending the domain query, and reading the response. The method
 // handles connection management and ensures proper cleanup of resources.
+// TODO(sustanza): Receiver name should be short and derived from the type (AGENTS.md Coding Style).
+// Consider renaming receiver to `nwc` in a follow-up refactor.
 func (c NetWhoisClient) Lookup(domain string) (string, error) {
-	conn, err := net.Dial("tcp", c.Server)
+    // TODO(sustanza): Use net.Dialer with timeouts or accept context to avoid
+    // indefinite dials per best practices.
+    conn, err := net.Dial("tcp", c.Server)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to WHOIS: %w", err)
 	}
@@ -41,11 +47,13 @@ func (c NetWhoisClient) Lookup(domain string) (string, error) {
 		}
 	}()
 
-	_, _ = fmt.Fprintf(conn, "%s\r\n", domain)
+    // TODO(sustanza): Check and handle the write error or document why it is safe to ignore.
+    _, _ = fmt.Fprintf(conn, "%s\r\n", domain)
 
-	if tcp, ok := conn.(*net.TCPConn); ok {
-		_ = tcp.CloseWrite()
-	}
+    if tcp, ok := conn.(*net.TCPConn); ok {
+        // TODO(sustanza): Check CloseWrite error or justify ignoring it (golangci-lint errcheck).
+        _ = tcp.CloseWrite()
+    }
 
 	data, err := io.ReadAll(conn)
 	if err != nil && !errors.Is(err, io.EOF) {

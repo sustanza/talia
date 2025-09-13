@@ -26,14 +26,18 @@ import (
 // Returns an exit code: 0 for success, 1 for errors.
 //
 //nolint:gocognit // This function orchestrates the main domain checking workflow
+// TODO(sustanza): Consider refactoring into smaller helpers (parse, check, write)
+// to reduce cognitive complexity instead of relying on nolint.
 func RunCLIDomainArray(
-	whoisServer, inputPath string,
-	domains []DomainRecord,
-	sleep time.Duration,
-	verbose, groupedOutput bool,
-	outputFile string,
+    whoisServer, inputPath string,
+    domains []DomainRecord,
+    sleep time.Duration,
+    verbose, groupedOutput bool,
+    outputFile string,
 ) int {
-	groupedData := GroupedData{}
+    groupedData := GroupedData{}
+    // TODO(sustanza): Ensure non-nil slices in grouped output to avoid JSON nulls
+    // (e.g., set Available/Unavailable to empty slices when marshaling an empty group).
 
 	for _, rec := range domains {
 		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
@@ -89,25 +93,27 @@ func RunCLIDomainArray(
 
 	// Now handle final grouped output if we used --grouped-output
 	if groupedOutput {
-		if outputFile == "" {
-			// Overwrite input file with grouped JSON
-			mergedOut, err := json.MarshalIndent(groupedData, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
-				return 1
-			}
-			if err := os.WriteFile(inputPath, mergedOut, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
-				fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", inputPath, err)
-				return 1
-			}
-			fmt.Println("Processing complete in grouped-output mode (overwrote input).")
-		} else {
-			if err := WriteGroupedFile(outputFile, groupedData); err != nil {
-				fmt.Fprintf(os.Stderr, "Error writing grouped file: %v\n", err)
-				return 1
-			}
-			fmt.Println("Processing complete in grouped-output mode (wrote to separate file).")
-		}
+        if outputFile == "" {
+            // Overwrite input file with grouped JSON
+            // TODO(sustanza): Prefer WriteGroupedFile here as well to merge with any existing
+            // grouped data in the input file, per AGENTS.md Design & Compatibility.
+            mergedOut, err := json.MarshalIndent(groupedData, "", "  ")
+            if err != nil {
+                fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
+                return 1
+            }
+            if err := os.WriteFile(inputPath, mergedOut, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
+                fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", inputPath, err)
+                return 1
+            }
+            fmt.Println("Processing complete in grouped-output mode (overwrote input).")
+        } else {
+            if err := WriteGroupedFile(outputFile, groupedData); err != nil {
+                fmt.Fprintf(os.Stderr, "Error writing grouped file: %v\n", err)
+                return 1
+            }
+            fmt.Println("Processing complete in grouped-output mode (wrote to separate file).")
+        }
 
 	} else {
 		// Non-grouped mode
@@ -132,25 +138,30 @@ func RunCLIDomainArray(
 //
 // Returns an exit code: 0 for success, 1 for errors.
 func RunCLIGroupedInput(
-	whoisServer, inputPath string,
-	ext ExtendedGroupedData,
-	sleep time.Duration,
-	verbose, groupedOutput bool,
-	outputFile string,
+    whoisServer, inputPath string,
+    ext ExtendedGroupedData,
+    sleep time.Duration,
+    verbose, groupedOutput bool,
+    outputFile string,
 ) int {
-	// If groupedOutput was NOT specified, we force it here
-	finalOutputFile := outputFile
-	if !groupedOutput || outputFile == "" {
-		finalOutputFile = inputPath
-	}
+    // If groupedOutput was NOT specified, we force it here
+    // TODO(sustanza): This also executes when groupedOutput==true but outputFile=="".
+    // Update the comment (or logic) for clarity.
+    finalOutputFile := outputFile
+    if !groupedOutput || outputFile == "" {
+        finalOutputFile = inputPath
+    }
 
-	// Initialize arrays if they're nil
-	if ext.Available == nil {
-		ext.Available = []GroupedDomain{}
-	}
-	if ext.Unavailable == nil {
-		ext.Unavailable = []GroupedDomain{}
-	}
+    // Initialize arrays if they're nil
+    // TODO(sustanza): Per AGENTS.md, treat nil and empty slices as empty and
+    // prefer len(s) == 0 checks. Avoid special-casing nil here unless needed for
+    // JSON shape; appending to a nil slice is safe and idiomatic.
+    if ext.Available == nil {
+        ext.Available = []GroupedDomain{}
+    }
+    if ext.Unavailable == nil {
+        ext.Unavailable = []GroupedDomain{}
+    }
 
 	// We'll do whois checks on the "unverified" array.
 	for _, rec := range ext.Unverified {
@@ -184,7 +195,10 @@ func RunCLIGroupedInput(
 	// Clear out unverified after we finish checking
 	ext.Unverified = nil
 
-	out, err := json.MarshalIndent(ext, "", "  ")
+    // TODO(sustanza): When groupedOutput is true and outputFile is set, prefer using
+    // WriteGroupedFile by converting ext -> GroupedData to merge with any existing data
+    // at the destination file (AGENTS.md Design & Compatibility).
+    out, err := json.MarshalIndent(ext, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
 		return 1
@@ -207,6 +221,9 @@ func RunCLIGroupedInput(
 // It parses command-line arguments, validates inputs, and orchestrates the appropriate
 // processing mode based on the input file format and flags provided.
 //
+// TODO(sustanza): Provide a small `cmd/talia/main.go` entrypoint that calls this function
+// to align with AGENTS.md Project Structure.
+//
 // The function supports multiple modes of operation:
 //   - Standard mode: processes an array of domains from a JSON file
 //   - Grouped mode: processes domains organized into available/unavailable/unverified categories
@@ -214,7 +231,7 @@ func RunCLIGroupedInput(
 //
 // Command-line flags:
 //   - --whois: WHOIS server address (required for domain checks)
-//   - --sleep: delay between checks (default 1s)
+//   - --sleep: delay between checks (default 2s)
 //   - --verbose: include raw WHOIS responses in output
 //   - --grouped-output: organize results into available/unavailable groups
 //   - --output-file: destination file for grouped output
@@ -239,7 +256,10 @@ func RunCLI(args []string) int {
 		return 1
 	}
 
-	openAIModel = *model
+    // TODO(sustanza): Avoid mutating package-level variable (AGENTS.md Security & Configuration Tips).
+    //  - Plumb model to GenerateDomainSuggestions via parameter or options/config struct.
+    //  - This also improves testability and avoids hidden state.
+    openAIModel = *model
 
 	if fs.NArg() < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: %s --whois=<server:port> [--sleep=2s] [--verbose] [--grouped-output] [--output-file=path] <json-file>\n", fs.Name())
@@ -264,12 +284,14 @@ func RunCLI(args []string) int {
 		return 1
 	}
 
-	inputPath := fs.Arg(0)
-	raw, err := os.ReadFile(inputPath) //nolint:gosec // User-provided path is validated
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
-		return 1
-	}
+    inputPath := fs.Arg(0)
+    // TODO(sustanza): Validate inputPath (existence, not a directory) before reading,
+    // or soften the nolint comment which currently claims validation.
+    raw, err := os.ReadFile(inputPath) //nolint:gosec // User-provided path; ensure validation
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
+        return 1
+    }
 
 	// Attempt to parse input as a simple array of DomainRecord.
 	var domains []DomainRecord

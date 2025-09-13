@@ -1,6 +1,8 @@
 // Package talia provides a comprehensive toolkit for checking domain name availability
-// across multiple TLDs through WHOIS lookups. It supports batch processing, concurrent
-// checks, multiple output formats, and OpenAI-powered domain suggestions.
+// across multiple TLDs through WHOIS lookups. It supports batch processing, multiple
+// output formats, and OpenAI-powered domain suggestions.
+// TODO(sustanza): The mention of "concurrent checks" was removed here; if concurrency is
+// desired, implement it (with rate limiting) and update docs accordingly.
 package talia
 
 // AvailabilityReason represents the result of a domain availability check.
@@ -47,10 +49,14 @@ type GroupedDomain struct {
 // It organizes domains into two categories based on their availability status,
 // making it easy to identify which domains can be registered.
 type GroupedData struct {
-	// Available contains all domains that are available for registration.
-	Available []GroupedDomain `json:"available"`
-	// Unavailable contains all domains that are already registered or had errors.
-	Unavailable []GroupedDomain `json:"unavailable"`
+    // Available contains all domains that are available for registration.
+    // TODO(sustanza): Ensure this marshals as an empty JSON array ([]) rather than null
+    // when no entries are present. Either initialize to empty slice at write time
+    // or consider adjusting JSON handling accordingly.
+    Available []GroupedDomain `json:"available"`
+    // Unavailable contains all domains that are already registered or had errors.
+    // TODO(sustanza): Same as Available: avoid nulls in JSON when empty.
+    Unavailable []GroupedDomain `json:"unavailable"`
 }
 
 // ExtendedGroupedData extends GroupedData with an additional unverified category.

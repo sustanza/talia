@@ -88,6 +88,8 @@ Talia reads a list of domains from a JSON file and connects to a **user-specifie
 ### Prerequisites
 
 - Go 1.16 or later
+  
+  <!-- TODO(sustanza): Align this with go.mod (currently `go 1.24.3`) and Dockerfile base image (Go 1.24). -->
 - golangci‑lint v2.1.6 (declared as a Go tool; Go 1.24+ will auto‑build it on first use)
 
 ### Steps
@@ -97,6 +99,8 @@ Talia reads a list of domains from a JSON file and connects to a **user-specifie
     cd talia
 
     # Build Talia:
+    # TODO(sustanza): Add `cmd/talia/main.go` entrypoint and update build instructions
+    # to `make build` or `go build -o talia ./cmd/talia` to match AGENTS.md structure.
     go build -o talia
 
 ---

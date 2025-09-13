@@ -29,18 +29,23 @@ type suggestionSchema struct {
 // httpDoer defines the interface for HTTP client operations, allowing for easy testing
 // and mocking of HTTP requests to the OpenAI API.
 type httpDoer interface {
-	Do(*http.Request) (*http.Response, error)
+    Do(*http.Request) (*http.Response, error)
 }
 
 var (
-	// suggestionHTTPClient is the HTTP client used for OpenAI API requests.
-	// It can be replaced for testing purposes.
-	suggestionHTTPClient httpDoer = http.DefaultClient
-	// openAIBase is the base URL for the OpenAI API endpoint.
-	openAIBase = defaultOpenAIBase
-	// openAIModel specifies which OpenAI model to use for generating suggestions.
-	openAIModel = defaultOpenAIModel
+    // suggestionHTTPClient is the HTTP client used for OpenAI API requests.
+    // It can be replaced for testing purposes.
+    suggestionHTTPClient httpDoer = http.DefaultClient
+    // openAIBase is the base URL for the OpenAI API endpoint.
+    openAIBase = defaultOpenAIBase
+    // openAIModel specifies which OpenAI model to use for generating suggestions.
+    openAIModel = defaultOpenAIModel
 )
+
+// TODO(sustanza): Avoid mutable package-level state (AGENTS.md Security & Configuration Tips).
+//  - Inject `httpDoer`, base URL, and model via parameters or a small Config/options type.
+//  - Tests should pass fakes through parameters instead of mutating globals.
+//  - Ensure `http.Client` has a Timeout configured to avoid hanging requests.
 
 // GenerateDomainSuggestions uses the OpenAI API to generate creative domain name suggestions
 // based on a user-provided prompt. It leverages OpenAI's function calling feature with
@@ -54,12 +59,16 @@ var (
 //
 // Returns a slice of DomainRecord entries ready to be checked for availability,
 // or an error if the API call fails or returns invalid data.
+// TODO(sustanza): Consider accepting context from caller (ctx parameter)
+// for cancellation/timeouts instead of using context.Background().
 func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord, error) {
-	if apiKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY is not set")
-	}
+    if apiKey == "" {
+        return nil, fmt.Errorf("OPENAI_API_KEY is not set")
+    }
+    // TODO(sustanza): Validate `count > 0` (and possibly max bound) to avoid
+    // upstream requests with invalid parameters when used as a library.
 
-	ctx := context.Background()
+    ctx := context.Background()
 
 	// Define the function schema for OpenAI function calling
 	functions := []map[string]any{
@@ -86,22 +95,26 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 		},
 	}
 
-	body := map[string]any{
-		"model": openAIModel,
-		"messages": []map[string]string{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": fmt.Sprintf(userPromptTemplate, prompt, count)},
-		},
-		"functions":     functions,
-		"function_call": map[string]string{"name": functionName},
-	}
+    // TODO(sustanza): Replace map[string]any payload with a typed request struct
+    // to improve compile-time safety and self-documentation.
+    body := map[string]any{
+        "model": openAIModel,
+        "messages": []map[string]string{
+            {"role": "system", "content": systemPrompt},
+            {"role": "user", "content": fmt.Sprintf(userPromptTemplate, prompt, count)},
+        },
+        "functions":     functions,
+        "function_call": map[string]string{"name": functionName},
+    }
 
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIBase+"/chat/completions", bytes.NewReader(payload))
+    // TODO(sustanza): Pass base URL and model as parameters or via an options struct
+    // rather than reading mutable package vars.
+    req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIBase+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -119,16 +132,18 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 		return nil, fmt.Errorf("openai status %s", resp.Status)
 	}
 
-	var openaiResp struct {
-		Choices []struct {
-			Message struct {
-				FunctionCall struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				} `json:"function_call"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
+    // TODO(sustanza): Define a top-level typed response struct in this package
+    // instead of an inline anonymous struct for better reuse and clarity.
+    var openaiResp struct {
+        Choices []struct {
+            Message struct {
+                FunctionCall struct {
+                    Name      string `json:"name"`
+                    Arguments string `json:"arguments"`
+                } `json:"function_call"`
+            } `json:"message"`
+        } `json:"choices"`
+    }
 	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
@@ -154,15 +169,18 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 //
 // Returns an error if the file write operation fails.
 func writeSuggestionsFile(path string, list []DomainRecord) error {
-	// Remove any fields except Domain from each DomainRecord for suggestions output
-	pruned := make([]DomainRecord, 0, len(list))
-	for _, rec := range list {
-		pruned = append(pruned, DomainRecord{Domain: rec.Domain})
-	}
-	data := ExtendedGroupedData{Unverified: pruned}
-	b, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0644) //nolint:gosec // JSON files don't contain secrets
+    // Remove any fields except Domain from each DomainRecord for suggestions output
+    pruned := make([]DomainRecord, 0, len(list))
+    for _, rec := range list {
+        pruned = append(pruned, DomainRecord{Domain: rec.Domain})
+    }
+    data := ExtendedGroupedData{Unverified: pruned}
+    b, err := json.MarshalIndent(data, "", "  ")
+    if err != nil {
+        return err
+    }
+    // TODO(sustanza): If `path` already exists and contains grouped JSON, consider merging
+    // new unverified suggestions into existing `unverified` rather than overwriting.
+    // TODO(sustanza): Perform an atomic write (temp file + rename) like grouped.go.
+    return os.WriteFile(path, b, 0644) //nolint:gosec // JSON files don't contain secrets
 }
