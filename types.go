@@ -1,9 +1,10 @@
-// Package talia provides a comprehensive toolkit for checking domain name availability
-// across multiple TLDs through WHOIS lookups. It supports batch processing, multiple
-// output formats, and OpenAI-powered domain suggestions.
-// TODO(sustanza): The mention of "concurrent checks" was removed here; if concurrency is
-// desired, implement it (with rate limiting) and update docs accordingly.
+// Package talia provides a toolkit for checking domain name availability
+// through WHOIS lookups. It supports batch processing (sequential), multiple
+// output formats, and OpenAI-powered domain suggestions. Concurrency may be
+// added in the future with appropriate rate limiting.
 package talia
+
+import "encoding/json"
 
 // AvailabilityReason represents the result of a domain availability check.
 // It provides a standardized way to communicate why a domain is available,
@@ -50,13 +51,28 @@ type GroupedDomain struct {
 // making it easy to identify which domains can be registered.
 type GroupedData struct {
     // Available contains all domains that are available for registration.
-    // TODO(sustanza): Ensure this marshals as an empty JSON array ([]) rather than null
-    // when no entries are present. Either initialize to empty slice at write time
-    // or consider adjusting JSON handling accordingly.
     Available []GroupedDomain `json:"available"`
     // Unavailable contains all domains that are already registered or had errors.
-    // TODO(sustanza): Same as Available: avoid nulls in JSON when empty.
     Unavailable []GroupedDomain `json:"unavailable"`
+}
+
+// MarshalJSON ensures GroupedData slices are rendered as [] (not null) when empty.
+// This produces more consistent JSON output for consumers that expect arrays.
+func (g GroupedData) MarshalJSON() ([]byte, error) {
+    type alias GroupedData // prevent recursion
+    a := alias(g)
+    if a.Available == nil {
+        a.Available = make([]GroupedDomain, 0)
+    }
+    if a.Unavailable == nil {
+        a.Unavailable = make([]GroupedDomain, 0)
+    }
+    return jsonMarshal(a)
+}
+
+// jsonMarshal exists to allow unit testing if needed and to ease linting.
+var jsonMarshal = func(v any) ([]byte, error) { //nolint:gochecknoglobals
+    return json.Marshal(v)
 }
 
 // ExtendedGroupedData extends GroupedData with an additional unverified category.

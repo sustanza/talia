@@ -1,8 +1,6 @@
 # Multi-stage build for Talia
 # Build stage
 FROM golang:1.24-alpine AS builder
-# TODO(sustanza): Ensure `./cmd/talia/main.go` exists; Docker build currently
-# assumes a CLI entrypoint at that path per AGENTS.md.
 
 # Install build dependencies
 RUN apk add --no-cache git make

@@ -1,11 +1,12 @@
 package talia
 
 import (
-	"encoding/json"
-	"flag"
-	"fmt"
-	"os"
-	"time"
+    "context"
+    "encoding/json"
+    "flag"
+    "fmt"
+    "os"
+    "time"
 )
 
 // RunCLIDomainArray processes an array of domain records, checking each domain's availability
@@ -25,9 +26,7 @@ import (
 //
 // Returns an exit code: 0 for success, 1 for errors.
 //
-//nolint:gocognit // This function orchestrates the main domain checking workflow
-// TODO(sustanza): Consider refactoring into smaller helpers (parse, check, write)
-// to reduce cognitive complexity instead of relying on nolint.
+//nolint:gocognit // This function orchestrates the main domain checking workflow.
 func RunCLIDomainArray(
     whoisServer, inputPath string,
     domains []DomainRecord,
@@ -36,8 +35,6 @@ func RunCLIDomainArray(
     outputFile string,
 ) int {
     groupedData := GroupedData{}
-    // TODO(sustanza): Ensure non-nil slices in grouped output to avoid JSON nulls
-    // (e.g., set Available/Unavailable to empty slices when marshaling an empty group).
 
 	for _, rec := range domains {
 		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
@@ -94,15 +91,8 @@ func RunCLIDomainArray(
 	// Now handle final grouped output if we used --grouped-output
 	if groupedOutput {
         if outputFile == "" {
-            // Overwrite input file with grouped JSON
-            // TODO(sustanza): Prefer WriteGroupedFile here as well to merge with any existing
-            // grouped data in the input file, per AGENTS.md Design & Compatibility.
-            mergedOut, err := json.MarshalIndent(groupedData, "", "  ")
-            if err != nil {
-                fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
-                return 1
-            }
-            if err := os.WriteFile(inputPath, mergedOut, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
+            // Overwrite/merge into input file using grouped file merge semantics
+            if err := WriteGroupedFile(inputPath, groupedData); err != nil {
                 fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", inputPath, err)
                 return 1
             }
@@ -145,17 +135,13 @@ func RunCLIGroupedInput(
     outputFile string,
 ) int {
     // If groupedOutput was NOT specified, we force it here
-    // TODO(sustanza): This also executes when groupedOutput==true but outputFile=="".
-    // Update the comment (or logic) for clarity.
+    // Determine destination: if no separate output file provided, overwrite inputPath.
     finalOutputFile := outputFile
     if !groupedOutput || outputFile == "" {
         finalOutputFile = inputPath
     }
 
-    // Initialize arrays if they're nil
-    // TODO(sustanza): Per AGENTS.md, treat nil and empty slices as empty and
-    // prefer len(s) == 0 checks. Avoid special-casing nil here unless needed for
-    // JSON shape; appending to a nil slice is safe and idiomatic.
+    // Initialize arrays if they're nil to ensure stable JSON shape.
     if ext.Available == nil {
         ext.Available = []GroupedDomain{}
     }
@@ -195,24 +181,27 @@ func RunCLIGroupedInput(
 	// Clear out unverified after we finish checking
 	ext.Unverified = nil
 
-    // TODO(sustanza): When groupedOutput is true and outputFile is set, prefer using
-    // WriteGroupedFile by converting ext -> GroupedData to merge with any existing data
-    // at the destination file (AGENTS.md Design & Compatibility).
-    out, err := json.MarshalIndent(ext, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
-		return 1
-	}
-	if err := os.WriteFile(finalOutputFile, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
-		fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", finalOutputFile, err)
-		return 1
-	}
-
-	if finalOutputFile == inputPath {
-		fmt.Println("Processed grouped input (with unverified) and overwrote original file.")
-	} else {
-		fmt.Println("Processed grouped input (with unverified) and wrote results to:", finalOutputFile)
-	}
+    if groupedOutput && outputFile != "" {
+        // Merge into separate grouped output file
+        gd := GroupedData{Available: ext.Available, Unavailable: ext.Unavailable}
+        if err := WriteGroupedFile(outputFile, gd); err != nil {
+            fmt.Fprintf(os.Stderr, "Error writing grouped file: %v\n", err)
+            return 1
+        }
+        fmt.Println("Processed grouped input (with unverified) and wrote results to:", outputFile)
+    } else {
+        // Overwrite input with updated ExtendedGroupedData
+        out, err := json.MarshalIndent(ext, "", "  ")
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
+            return 1
+        }
+        if err := os.WriteFile(finalOutputFile, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
+            fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", finalOutputFile, err)
+            return 1
+        }
+        fmt.Println("Processed grouped input (with unverified) and overwrote original file.")
+    }
 
 	return 0
 }
@@ -221,8 +210,7 @@ func RunCLIGroupedInput(
 // It parses command-line arguments, validates inputs, and orchestrates the appropriate
 // processing mode based on the input file format and flags provided.
 //
-// TODO(sustanza): Provide a small `cmd/talia/main.go` entrypoint that calls this function
-// to align with AGENTS.md Project Structure.
+// cmd/talia/main.go provides the small entrypoint that calls this function.
 //
 // The function supports multiple modes of operation:
 //   - Standard mode: processes an array of domains from a JSON file
@@ -256,28 +244,31 @@ func RunCLI(args []string) int {
 		return 1
 	}
 
-    // TODO(sustanza): Avoid mutating package-level variable (AGENTS.md Security & Configuration Tips).
-    //  - Plumb model to GenerateDomainSuggestions via parameter or options/config struct.
-    //  - This also improves testability and avoids hidden state.
-    openAIModel = *model
+    // Avoid mutating package-level state: pass model via options.
 
 	if fs.NArg() < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: %s --whois=<server:port> [--sleep=2s] [--verbose] [--grouped-output] [--output-file=path] <json-file>\n", fs.Name())
 		return 1
 	}
-	if *suggest > 0 {
-		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), *prompt, *suggest)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
-			return 1
-		}
-		if err := writeSuggestionsFile(fs.Arg(0), list); err != nil {
-			fmt.Fprintln(os.Stderr, "Error writing suggestions file:", err)
-			return 1
-		}
-		fmt.Println("Wrote domain suggestions to", fs.Arg(0))
-		return 0
-	}
+    if *suggest > 0 {
+        list, err := GenerateDomainSuggestionsWithContext(
+            context.Background(),
+            os.Getenv("OPENAI_API_KEY"),
+            *prompt,
+            *suggest,
+            SuggestOptions{Model: *model},
+        )
+        if err != nil {
+            fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
+            return 1
+        }
+        if err := writeSuggestionsFile(fs.Arg(0), list); err != nil {
+            fmt.Fprintln(os.Stderr, "Error writing suggestions file:", err)
+            return 1
+        }
+        fmt.Println("Wrote domain suggestions to", fs.Arg(0))
+        return 0
+    }
 
 	if *whoisServer == "" {
 		fmt.Fprintln(os.Stderr, "Error: --whois=<server:port> is required")
@@ -285,9 +276,12 @@ func RunCLI(args []string) int {
 	}
 
     inputPath := fs.Arg(0)
-    // TODO(sustanza): Validate inputPath (existence, not a directory) before reading,
-    // or soften the nolint comment which currently claims validation.
-    raw, err := os.ReadFile(inputPath) //nolint:gosec // User-provided path; ensure validation
+    // Validate input path before read
+    if fi, err := os.Stat(inputPath); err != nil || fi.IsDir() {
+        fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
+        return 1
+    }
+    raw, err := os.ReadFile(inputPath) //nolint:gosec // User-provided path; validated above
     if err != nil {
         fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
         return 1

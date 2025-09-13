@@ -2,8 +2,6 @@
 # Comprehensive build automation for the Talia domain checker
 
 # Variables
-# TODO(sustanza): Ensure `$(MAIN_PATH)` exists by adding `cmd/talia/main.go`
-# that calls the library `RunCLI` and exits with its return code (AGENTS.md structure).
 BINARY_NAME := talia
 MAIN_PATH := ./cmd/talia
 GO := go

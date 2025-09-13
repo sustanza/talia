@@ -1,12 +1,14 @@
 package talia
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"os"
+    "bytes"
+    "context"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "os"
+    "path/filepath"
+    "time"
 )
 
 const (
@@ -35,17 +37,40 @@ type httpDoer interface {
 var (
     // suggestionHTTPClient is the HTTP client used for OpenAI API requests.
     // It can be replaced for testing purposes.
-    suggestionHTTPClient httpDoer = http.DefaultClient
+    suggestionHTTPClient httpDoer = &http.Client{Timeout: 30 * time.Second}
     // openAIBase is the base URL for the OpenAI API endpoint.
     openAIBase = defaultOpenAIBase
     // openAIModel specifies which OpenAI model to use for generating suggestions.
     openAIModel = defaultOpenAIModel
 )
 
-// TODO(sustanza): Avoid mutable package-level state (AGENTS.md Security & Configuration Tips).
-//  - Inject `httpDoer`, base URL, and model via parameters or a small Config/options type.
-//  - Tests should pass fakes through parameters instead of mutating globals.
-//  - Ensure `http.Client` has a Timeout configured to avoid hanging requests.
+// Legacy note: older code paths relied on mutable package-level state (HTTP client,
+// base URL, model). An options-based API is provided below to avoid global mutation
+// in callers (e.g., CLI). The legacy function remains for compatibility.
+
+// SuggestOptions configures suggestion generation without relying on globals.
+type SuggestOptions struct {
+    Model      string
+    BaseURL    string
+    HTTPClient httpDoer
+}
+
+type chatMessage struct {
+    Role    string `json:"role"`
+    Content string `json:"content"`
+}
+type functionSpec struct {
+    Name        string                 `json:"name"`
+    Description string                 `json:"description,omitempty"`
+    Parameters  map[string]any         `json:"parameters,omitempty"`
+}
+type functionCallSpec struct { Name string `json:"name"` }
+type chatCompletionRequest struct {
+    Model        string           `json:"model"`
+    Messages     []chatMessage    `json:"messages"`
+    Functions    []functionSpec   `json:"functions"`
+    FunctionCall functionCallSpec `json:"function_call"`
+}
 
 // GenerateDomainSuggestions uses the OpenAI API to generate creative domain name suggestions
 // based on a user-provided prompt. It leverages OpenAI's function calling feature with
@@ -59,103 +84,89 @@ var (
 //
 // Returns a slice of DomainRecord entries ready to be checked for availability,
 // or an error if the API call fails or returns invalid data.
-// TODO(sustanza): Consider accepting context from caller (ctx parameter)
-// for cancellation/timeouts instead of using context.Background().
-func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord, error) {
+// GenerateDomainSuggestionsWithContext performs suggestion generation with explicit context and options.
+func GenerateDomainSuggestionsWithContext(ctx context.Context, apiKey, prompt string, count int, opt SuggestOptions) ([]DomainRecord, error) {
     if apiKey == "" {
         return nil, fmt.Errorf("OPENAI_API_KEY is not set")
     }
-    // TODO(sustanza): Validate `count > 0` (and possibly max bound) to avoid
-    // upstream requests with invalid parameters when used as a library.
+    if count <= 0 {
+        return nil, fmt.Errorf("count must be > 0")
+    }
 
-    ctx := context.Background()
+    if opt.Model == "" { opt.Model = openAIModel }
+    if opt.BaseURL == "" { opt.BaseURL = openAIBase }
+    hc := opt.HTTPClient
+    if hc == nil { hc = suggestionHTTPClient }
 
-	// Define the function schema for OpenAI function calling
-	functions := []map[string]any{
-		{
-			"name":        functionName,
-			"description": functionDesc,
-			"parameters": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"unverified": map[string]any{
-						"type": "array",
-						"items": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"domain": map[string]any{"type": "string"},
-							},
-							"required": []string{"domain"},
-						},
-					},
-				},
-				"required":             []string{"unverified"},
-				"additionalProperties": false,
-			},
-		},
-	}
-
-    // TODO(sustanza): Replace map[string]any payload with a typed request struct
-    // to improve compile-time safety and self-documentation.
-    body := map[string]any{
-        "model": openAIModel,
-        "messages": []map[string]string{
-            {"role": "system", "content": systemPrompt},
-            {"role": "user", "content": fmt.Sprintf(userPromptTemplate, prompt, count)},
+    // Function schema (JSON Schema fragment) kept as map for flexibility
+    fnParams := map[string]any{
+        "type": "object",
+        "properties": map[string]any{
+            "unverified": map[string]any{
+                "type": "array",
+                "items": map[string]any{
+                    "type": "object",
+                    "properties": map[string]any{
+                        "domain": map[string]any{"type": "string"},
+                    },
+                    "required": []string{"domain"},
+                },
+            },
         },
-        "functions":     functions,
-        "function_call": map[string]string{"name": functionName},
+        "required":             []string{"unverified"},
+        "additionalProperties": false,
+    }
+    reqBody := chatCompletionRequest{
+        Model: opt.Model,
+        Messages: []chatMessage{
+            {Role: "system", Content: systemPrompt},
+            {Role: "user", Content: fmt.Sprintf(userPromptTemplate, prompt, count)},
+        },
+        Functions: []functionSpec{{
+            Name:        functionName,
+            Description: functionDesc,
+            Parameters:  fnParams,
+        }},
+        FunctionCall: functionCallSpec{Name: functionName},
+    }
+    payload, err := json.Marshal(reqBody)
+    if err != nil {
+        return nil, fmt.Errorf("marshal request: %w", err)
     }
 
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-    // TODO(sustanza): Pass base URL and model as parameters or via an options struct
-    // rather than reading mutable package vars.
-    req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIBase+"/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := suggestionHTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("openai request: %w", err)
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("openai status %s", resp.Status)
-	}
-
-    // TODO(sustanza): Define a top-level typed response struct in this package
-    // instead of an inline anonymous struct for better reuse and clarity.
-    var openaiResp struct {
-        Choices []struct {
-            Message struct {
-                FunctionCall struct {
-                    Name      string `json:"name"`
-                    Arguments string `json:"arguments"`
-                } `json:"function_call"`
-            } `json:"message"`
-        } `json:"choices"`
+    req, err := http.NewRequestWithContext(ctx, http.MethodPost, opt.BaseURL+"/chat/completions", bytes.NewReader(payload))
+    if err != nil {
+        return nil, err
     }
-	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-	if len(openaiResp.Choices) == 0 {
-		return nil, fmt.Errorf("no choices returned")
-	}
+    req.Header.Set("Authorization", "Bearer "+apiKey)
+    req.Header.Set("Content-Type", "application/json")
 
-	var out suggestionSchema
-	if err := json.Unmarshal([]byte(openaiResp.Choices[0].Message.FunctionCall.Arguments), &out); err != nil {
-		return nil, fmt.Errorf("unmarshal structured output: %w", err)
-	}
-	return out.Unverified, nil
+    resp, err := hc.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("openai request: %w", err)
+    }
+    defer func() { _ = resp.Body.Close() }()
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("openai status %s", resp.Status)
+    }
+
+    var openaiResp openAIChatResponse
+    if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+        return nil, fmt.Errorf("decode response: %w", err)
+    }
+    if len(openaiResp.Choices) == 0 {
+        return nil, fmt.Errorf("no choices returned")
+    }
+    var out suggestionSchema
+    if err := json.Unmarshal([]byte(openaiResp.Choices[0].Message.FunctionCall.Arguments), &out); err != nil {
+        return nil, fmt.Errorf("unmarshal structured output: %w", err)
+    }
+    return out.Unverified, nil
+}
+
+// Backward-compatible wrapper using default context and options.
+func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord, error) {
+    return GenerateDomainSuggestionsWithContext(context.Background(), apiKey, prompt, count, SuggestOptions{})
 }
 
 // writeSuggestionsFile saves domain suggestions to a JSON file in ExtendedGroupedData format.
@@ -179,8 +190,38 @@ func writeSuggestionsFile(path string, list []DomainRecord) error {
     if err != nil {
         return err
     }
-    // TODO(sustanza): If `path` already exists and contains grouped JSON, consider merging
-    // new unverified suggestions into existing `unverified` rather than overwriting.
-    // TODO(sustanza): Perform an atomic write (temp file + rename) like grouped.go.
-    return os.WriteFile(path, b, 0644) //nolint:gosec // JSON files don't contain secrets
+    // Atomic write similar to grouped.go
+    dir := filepath.Dir(path)
+    base := filepath.Base(path)
+    tmp, err := os.CreateTemp(dir, "."+base+".*.tmp")
+    if err != nil {
+        return err
+    }
+    tmpName := tmp.Name()
+    if _, err := tmp.Write(b); err != nil {
+        _ = tmp.Close()
+        _ = os.Remove(tmpName)
+        return err
+    }
+    if err := tmp.Close(); err != nil {
+        _ = os.Remove(tmpName)
+        return err
+    }
+    if err := os.Rename(tmpName, path); err != nil {
+        _ = os.Remove(tmpName)
+        return err
+    }
+    return nil
+}
+
+// openAIChatResponse models the subset of OpenAI chat response we use.
+type openAIChatResponse struct {
+    Choices []struct {
+        Message struct {
+            FunctionCall struct {
+                Name      string `json:"name"`
+                Arguments string `json:"arguments"`
+            } `json:"function_call"`
+        } `json:"message"`
+    } `json:"choices"`
 }

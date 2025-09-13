@@ -37,6 +37,7 @@
 - When writing grouped results, prefer `WriteGroupedFile` to merge with existing data.
 - If adding flags or outputs, update usage in `cmd/talia/main.go`, `README.MD`, and Makefile examples.
  - Treat `nil` and zero-length slices as empty in APIs; use `len(s) == 0` to check emptiness.
+ - ALWAYS use standard library packages when possible. Use of third-party packages must be justified and approved.
 
 ## Commit & Pull Request Guidelines
 - Use Conventional Commits; enforced by commitlint. Allowed types include: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `style`, `revert`.
