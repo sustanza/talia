@@ -67,12 +67,7 @@ func (g GroupedData) MarshalJSON() ([]byte, error) {
     if a.Unavailable == nil {
         a.Unavailable = make([]GroupedDomain, 0)
     }
-    return jsonMarshal(a)
-}
-
-// jsonMarshal exists to allow unit testing if needed and to ease linting.
-var jsonMarshal = func(v any) ([]byte, error) { //nolint:gochecknoglobals
-    return json.Marshal(v)
+    return json.Marshal(a)
 }
 
 // ExtendedGroupedData extends GroupedData with an additional unverified category.

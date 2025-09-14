@@ -186,6 +186,43 @@ func writeSuggestionsFile(path string, list []DomainRecord) error {
         pruned = append(pruned, DomainRecord{Domain: rec.Domain})
     }
     data := ExtendedGroupedData{Unverified: pruned}
+    // If the destination exists and contains grouped JSON, merge unverified suggestions
+    if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
+        if fi.IsDir() {
+            return fmt.Errorf("write suggestions: %s is a directory", path)
+        }
+        raw, err := os.ReadFile(path)
+        if err == nil {
+            // Try ExtendedGroupedData first
+            var existingExt ExtendedGroupedData
+            if json.Unmarshal(raw, &existingExt) == nil {
+                // Deduplicate by domain
+                seen := make(map[string]struct{}, len(existingExt.Unverified))
+                for _, r := range existingExt.Unverified {
+                    seen[r.Domain] = struct{}{}
+                }
+                merged := existingExt.Unverified[:0]
+                merged = append(merged, existingExt.Unverified...)
+                for _, r := range pruned {
+                    if _, ok := seen[r.Domain]; !ok {
+                        seen[r.Domain] = struct{}{}
+                        merged = append(merged, r)
+                    }
+                }
+                existingExt.Unverified = merged
+                data = existingExt
+            } else {
+                // Try GroupedData and convert to ExtendedGroupedData
+                var existingG GroupedData
+                if json.Unmarshal(raw, &existingG) == nil {
+                    data.Available = existingG.Available
+                    data.Unavailable = existingG.Unavailable
+                }
+            }
+        }
+    } else if err == nil && fi.IsDir() {
+        return fmt.Errorf("write suggestions: %s is a directory", path)
+    }
     b, err := json.MarshalIndent(data, "", "  ")
     if err != nil {
         return err
