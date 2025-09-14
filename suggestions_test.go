@@ -245,11 +245,11 @@ func TestGenerateDomainSuggestionsUnmarshalError(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"not-json"}}}]}`)
 	}))
 	defer srv.Close()
-	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
+suggestionHTTPClient = fakeHTTPClient{srv}
+openAIBaseURL = srv.URL
 	t.Cleanup(func() {
-		suggestionHTTPClient = http.DefaultClient
-		openAIBase = defaultOpenAIBase
+	suggestionHTTPClient = http.DefaultClient
+	openAIBaseURL = defaultOpenAIBase
 	})
 	_, err := GenerateDomainSuggestions("key", "", 1)
 	if err == nil || !strings.Contains(err.Error(), "unmarshal structured output") {

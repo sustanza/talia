@@ -1524,9 +1524,9 @@ func TestRunCLIGroupedInput_WriteError(t *testing.T) {
             t.Error("expected non-zero exit")
         }
     })
-	if !strings.Contains(stderr, "Error writing grouped JSON") {
-		t.Errorf("missing write error, got %s", stderr)
-	}
+    if !strings.Contains(stderr, "Error writing grouped file") && !strings.Contains(stderr, "Error writing grouped JSON") {
+        t.Errorf("missing write error, got %s", stderr)
+    }
 }
 
 func TestRunCLIDomainArray_GroupedSuccess(t *testing.T) {
