@@ -33,6 +33,8 @@ type NetWhoisClient struct {
     // Server specifies the WHOIS server address in "host:port" format.
     // For example: "whois.verisign-grs.com:43" for .com domains.
     Server string
+    // Timeout specifies the per-lookup timeout. If zero, a default is used.
+    Timeout time.Duration
 }
 
 // Lookup performs a WHOIS query by establishing a TCP connection to the configured
@@ -40,7 +42,11 @@ type NetWhoisClient struct {
 // handles connection management and ensures proper cleanup of resources.
 func (nwc NetWhoisClient) Lookup(domain string) (string, error) {
     // Use a Dialer with a sane timeout to avoid indefinite dials.
-    d := net.Dialer{Timeout: 10 * time.Second}
+    tout := nwc.Timeout
+    if tout <= 0 {
+        tout = 10 * time.Second
+    }
+    d := net.Dialer{Timeout: tout}
     conn, err := d.Dial("tcp", nwc.Server)
     if err != nil {
         return "", fmt.Errorf("failed to connect to WHOIS: %w", err)
@@ -85,7 +91,11 @@ func (nwc NetWhoisClient) Lookup(domain string) (string, error) {
 
 // LookupContext is a context-aware variant of Lookup.
 func (nwc NetWhoisClient) LookupContext(ctx context.Context, domain string) (string, error) {
-    d := net.Dialer{Timeout: 10 * time.Second}
+    tout := nwc.Timeout
+    if tout <= 0 {
+        tout = 10 * time.Second
+    }
+    d := net.Dialer{Timeout: tout}
     conn, err := d.DialContext(ctx, "tcp", nwc.Server)
     if err != nil {
         return "", fmt.Errorf("failed to connect to WHOIS: %w", err)

@@ -38,8 +38,8 @@ var (
     // suggestionHTTPClient is the HTTP client used for OpenAI API requests.
     // It can be replaced for testing purposes.
     suggestionHTTPClient httpDoer = &http.Client{Timeout: 30 * time.Second}
-    // openAIBase is the base URL for the OpenAI API endpoint.
-    openAIBase = defaultOpenAIBase
+    // openAIBaseURL is the base URL for the OpenAI API endpoint.
+    openAIBaseURL = defaultOpenAIBase
     // openAIModel specifies which OpenAI model to use for generating suggestions.
     openAIModel = defaultOpenAIModel
 )
@@ -98,7 +98,7 @@ func GenerateDomainSuggestionsWithContext(ctx context.Context, apiKey, prompt st
     }
 
     if opt.Model == "" { opt.Model = openAIModel }
-    if opt.BaseURL == "" { opt.BaseURL = openAIBase }
+    if opt.BaseURL == "" { opt.BaseURL = openAIBaseURL }
     hc := opt.HTTPClient
     if hc == nil { hc = suggestionHTTPClient }
 
@@ -173,10 +173,12 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
     return GenerateDomainSuggestionsWithContext(context.Background(), apiKey, prompt, count, SuggestOptions{})
 }
 
-// writeSuggestionsFile saves domain suggestions to a JSON file in ExtendedGroupedData format.
-// The suggestions are placed in the "unverified" field, ready to be checked for availability
-// in a subsequent run. The function strips any existing availability information from the
-// domain records, keeping only the domain names to ensure a clean starting state.
+// writeSuggestionsFile writes domain suggestions to a JSON file in ExtendedGroupedData format.
+// Suggestions are placed in the "unverified" field so they can be checked for availability
+// later. If the destination file already contains grouped JSON, the function merges the
+// new suggestions with the existing "unverified" entries (deduplicated by domain) and
+// preserves existing "available" and "unavailable" data. The function strips any fields
+// other than the domain name from the provided records.
 //
 // Parameters:
 //   - path: destination file path for the JSON output

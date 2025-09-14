@@ -130,9 +130,11 @@ By default, Talia sleeps 2 seconds (`--sleep=2s`) between each domain WHOIS quer
 
     ./talia --whois=whois.example.com:43 --sleep=500ms path/to/domains.json
 
-### Optional Sleep Flag
+### Optional Flags
 
 As shown above, `--sleep` changes how long Talia waits between domain checks.
+
+- `--whois-timeout=<duration>`: Per-lookup timeout for WHOIS connections (default `10s`).
 
 ### Generating Domain Suggestions
 

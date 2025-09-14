@@ -23,6 +23,7 @@ import (
 //   - verbose: if true, includes raw WHOIS responses in the output
 //   - groupedOutput: if true, organizes results into available/unavailable groups
 //   - outputFile: destination file for grouped output (if empty, overwrites input file)
+//   - whoisTimeout: timeout per WHOIS lookup
 //
 // Returns an exit code: 0 for success, 1 for errors.
 //
@@ -33,13 +34,17 @@ func RunCLIDomainArray(
     sleep time.Duration,
     verbose, groupedOutput bool,
     outputFile string,
+    whoisTimeout time.Duration,
 ) int {
     groupedData := GroupedData{}
+    client := NetWhoisClient{Server: whoisServer, Timeout: whoisTimeout}
 
 	for _, rec := range domains {
 		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
 
-		avail, reason, logData, err := CheckDomainAvailability(rec.Domain, whoisServer)
+        ctx, cancel := context.WithTimeout(context.Background(), whoisTimeout)
+        avail, reason, logData, err := CheckDomainAvailabilityWithClientContext(ctx, rec.Domain, client)
+        cancel()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", rec.Domain, err)
 			avail = false
@@ -89,7 +94,7 @@ func RunCLIDomainArray(
 	}
 
 	// Now handle final grouped output if we used --grouped-output
-	if groupedOutput {
+    if groupedOutput {
         if outputFile == "" {
             // Overwrite/merge into input file using grouped file merge semantics
             if err := WriteGroupedFile(inputPath, groupedData); err != nil {
@@ -109,7 +114,7 @@ func RunCLIDomainArray(
 		// Non-grouped mode
 		fmt.Println("Processing complete. Updated file:", inputPath)
 	}
-	return 0
+    return 0
 }
 
 // RunCLIGroupedInput processes ExtendedGroupedData that contains already categorized domains
@@ -125,6 +130,7 @@ func RunCLIDomainArray(
 //   - verbose: if true, includes raw WHOIS responses in the output
 //   - groupedOutput: if true, writes to a separate output file; otherwise overwrites input
 //   - outputFile: destination file for results (if empty and groupedOutput is true, uses inputPath)
+//   - whoisTimeout: timeout per WHOIS lookup
 //
 // Returns an exit code: 0 for success, 1 for errors.
 func RunCLIGroupedInput(
@@ -133,6 +139,7 @@ func RunCLIGroupedInput(
     sleep time.Duration,
     verbose, groupedOutput bool,
     outputFile string,
+    whoisTimeout time.Duration,
 ) int {
     // If groupedOutput was NOT specified, we force it here
     // Determine destination: if no separate output file provided, overwrite inputPath.
@@ -149,11 +156,14 @@ func RunCLIGroupedInput(
         ext.Unavailable = []GroupedDomain{}
     }
 
-	// We'll do whois checks on the "unverified" array.
-	for _, rec := range ext.Unverified {
-		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
+    // We'll do whois checks on the "unverified" array.
+    client := NetWhoisClient{Server: whoisServer, Timeout: whoisTimeout}
+    for _, rec := range ext.Unverified {
+        fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
 
-		avail, reason, logData, err := CheckDomainAvailability(rec.Domain, whoisServer)
+        ctx, cancel := context.WithTimeout(context.Background(), whoisTimeout)
+        avail, reason, logData, err := CheckDomainAvailabilityWithClientContext(ctx, rec.Domain, client)
+        cancel()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", rec.Domain, err)
 			avail = false
@@ -220,6 +230,7 @@ func RunCLIGroupedInput(
 // Command-line flags:
 //   - --whois: WHOIS server address (required for domain checks)
 //   - --sleep: delay between checks (default 2s)
+//   - --whois-timeout: timeout for each WHOIS lookup (default 10s)
 //   - --verbose: include raw WHOIS responses in output
 //   - --grouped-output: organize results into available/unavailable groups
 //   - --output-file: destination file for grouped output
@@ -229,9 +240,10 @@ func RunCLIGroupedInput(
 //
 // Returns an exit code: 0 for success, 1 for errors.
 func RunCLI(args []string) int {
-	fs := flag.NewFlagSet("talia", flag.ContinueOnError)
-	whoisServer := fs.String("whois", "", "WHOIS server, e.g. whois.verisign-grs.com:43 (required)")
-	sleep := fs.Duration("sleep", 2*time.Second, "Time to sleep between domain checks (default 2s)")
+    fs := flag.NewFlagSet("talia", flag.ContinueOnError)
+    whoisServer := fs.String("whois", "", "WHOIS server, e.g. whois.verisign-grs.com:43 (required)")
+    sleep := fs.Duration("sleep", 2*time.Second, "Time to sleep between domain checks (default 2s)")
+    whoisTimeout := fs.Duration("whois-timeout", 10*time.Second, "Timeout for each WHOIS lookup (default 10s)")
 	verbose := fs.Bool("verbose", false, "Include WHOIS log in 'log' field even for successful checks")
 	groupedOutput := fs.Bool("grouped-output", false, "Enable grouped output (JSON object with 'available','unavailable')")
 	outputFile := fs.String("output-file", "", "Path to grouped output file (if set, input file remains unmodified)")
@@ -290,16 +302,16 @@ func RunCLI(args []string) int {
 	// Attempt to parse input as a simple array of DomainRecord.
 	var domains []DomainRecord
 	err = json.Unmarshal(raw, &domains)
-	if err == nil {
-		// Plain slice of domain records
-		return RunCLIDomainArray(*whoisServer, inputPath, domains, *sleep, *verbose, *groupedOutput, *outputFile)
-	}
+    if err == nil {
+        // Plain slice of domain records
+        return RunCLIDomainArray(*whoisServer, inputPath, domains, *sleep, *verbose, *groupedOutput, *outputFile, *whoisTimeout)
+    }
 
 	// If that fails, try to parse as a grouped JSON that might contain unverified.
 	var ext ExtendedGroupedData
-	if err2 := json.Unmarshal(raw, &ext); err2 == nil {
-		return RunCLIGroupedInput(*whoisServer, inputPath, ext, *sleep, *verbose, *groupedOutput, *outputFile)
-	}
+    if err2 := json.Unmarshal(raw, &ext); err2 == nil {
+        return RunCLIGroupedInput(*whoisServer, inputPath, ext, *sleep, *verbose, *groupedOutput, *outputFile, *whoisTimeout)
+    }
 
 	// If both fail, then it's truly invalid JSON or an unexpected format.
 	fmt.Fprintf(os.Stderr, "Error parsing JSON in %s: %v\n", inputPath, err)

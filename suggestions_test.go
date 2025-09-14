@@ -33,10 +33,10 @@ func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
 	defer srv.Close()
 
 	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
+    openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = defaultOpenAIBase
+        openAIBaseURL = defaultOpenAIBase
 	})
 
 	got, err := GenerateDomainSuggestions("key", "", 1)
@@ -55,10 +55,10 @@ func TestGenerateDomainSuggestionsHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
+    openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = defaultOpenAIBase
+        openAIBaseURL = defaultOpenAIBase
 	})
 
 	_, err := GenerateDomainSuggestions("key", "", 1)
@@ -77,10 +77,10 @@ func TestRunCLISuggest(t *testing.T) {
 	defer srv.Close()
 
 	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
+    openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = defaultOpenAIBase
+        openAIBaseURL = defaultOpenAIBase
 	})
 
 	tmp, err := os.CreateTemp("", "sugg_*.json")
@@ -144,10 +144,10 @@ func TestRunCLISuggestModelFlag(t *testing.T) {
 	defer srv.Close()
 
 	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
+    openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = defaultOpenAIBase
+        openAIBaseURL = defaultOpenAIBase
 		openAIModel = defaultOpenAIModel
 	})
 
@@ -210,10 +210,10 @@ func TestGenerateDomainSuggestionsDecodeError(t *testing.T) {
 	}))
 	defer srv.Close()
 	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
+    openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = defaultOpenAIBase
+        openAIBaseURL = defaultOpenAIBase
 	})
 	_, err := GenerateDomainSuggestions("key", "", 1)
 	if err == nil || !strings.Contains(err.Error(), "decode response") {
@@ -228,10 +228,10 @@ func TestGenerateDomainSuggestionsNoChoices(t *testing.T) {
 	}))
 	defer srv.Close()
 	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
+    openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-		openAIBase = defaultOpenAIBase
+        openAIBaseURL = defaultOpenAIBase
 	})
 	_, err := GenerateDomainSuggestions("key", "", 1)
 	if err == nil || !strings.Contains(err.Error(), "no choices") {
