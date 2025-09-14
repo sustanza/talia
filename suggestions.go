@@ -84,7 +84,11 @@ type chatCompletionRequest struct {
 //
 // Returns a slice of DomainRecord entries ready to be checked for availability,
 // or an error if the API call fails or returns invalid data.
-// GenerateDomainSuggestionsWithContext performs suggestion generation with explicit context and options.
+// GenerateDomainSuggestionsWithContext generates domain suggestions using the OpenAI Chat Completions
+// API with explicit context and configurable options. It returns a slice of DomainRecord entries
+// in the "unverified" state that can be fed into subsequent availability checks.
+// The function validates inputs, uses a default HTTP client with a timeout if none is provided,
+// and returns detailed errors on request/response failures.
 func GenerateDomainSuggestionsWithContext(ctx context.Context, apiKey, prompt string, count int, opt SuggestOptions) ([]DomainRecord, error) {
     if apiKey == "" {
         return nil, fmt.Errorf("OPENAI_API_KEY is not set")
