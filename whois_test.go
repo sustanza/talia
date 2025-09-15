@@ -13,7 +13,7 @@ type fakeWhoisClient struct {
 	err  error
 }
 
-func (f fakeWhoisClient) Lookup(domain string) (string, error) {
+func (f fakeWhoisClient) Lookup(_ string) (string, error) {
 	return f.resp, f.err
 }
 

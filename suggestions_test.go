@@ -33,10 +33,10 @@ func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
 	defer srv.Close()
 
 	suggestionHTTPClient = fakeHTTPClient{srv}
-    openAIBaseURL = srv.URL
+	openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-        openAIBaseURL = defaultOpenAIBase
+		openAIBaseURL = defaultOpenAIBase
 	})
 
 	got, err := GenerateDomainSuggestions("key", "", 1)
@@ -49,16 +49,16 @@ func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
 }
 
 func TestGenerateDomainSuggestionsHTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
 	suggestionHTTPClient = fakeHTTPClient{srv}
-    openAIBaseURL = srv.URL
+	openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-        openAIBaseURL = defaultOpenAIBase
+		openAIBaseURL = defaultOpenAIBase
 	})
 
 	_, err := GenerateDomainSuggestions("key", "", 1)
@@ -77,10 +77,10 @@ func TestRunCLISuggest(t *testing.T) {
 	defer srv.Close()
 
 	suggestionHTTPClient = fakeHTTPClient{srv}
-    openAIBaseURL = srv.URL
+	openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-        openAIBaseURL = defaultOpenAIBase
+		openAIBaseURL = defaultOpenAIBase
 	})
 
 	tmp, err := os.CreateTemp("", "sugg_*.json")
@@ -144,10 +144,10 @@ func TestRunCLISuggestModelFlag(t *testing.T) {
 	defer srv.Close()
 
 	suggestionHTTPClient = fakeHTTPClient{srv}
-    openAIBaseURL = srv.URL
+	openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-        openAIBaseURL = defaultOpenAIBase
+		openAIBaseURL = defaultOpenAIBase
 		openAIModel = defaultOpenAIModel
 	})
 
@@ -204,16 +204,16 @@ func TestGenerateDomainSuggestionsRequestError(t *testing.T) {
 }
 
 func TestGenerateDomainSuggestionsDecodeError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "not-json")
 	}))
 	defer srv.Close()
 	suggestionHTTPClient = fakeHTTPClient{srv}
-    openAIBaseURL = srv.URL
+	openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-        openAIBaseURL = defaultOpenAIBase
+		openAIBaseURL = defaultOpenAIBase
 	})
 	_, err := GenerateDomainSuggestions("key", "", 1)
 	if err == nil || !strings.Contains(err.Error(), "decode response") {
@@ -222,16 +222,16 @@ func TestGenerateDomainSuggestionsDecodeError(t *testing.T) {
 }
 
 func TestGenerateDomainSuggestionsNoChoices(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"choices":[]}`)
 	}))
 	defer srv.Close()
 	suggestionHTTPClient = fakeHTTPClient{srv}
-    openAIBaseURL = srv.URL
+	openAIBaseURL = srv.URL
 	t.Cleanup(func() {
 		suggestionHTTPClient = http.DefaultClient
-        openAIBaseURL = defaultOpenAIBase
+		openAIBaseURL = defaultOpenAIBase
 	})
 	_, err := GenerateDomainSuggestions("key", "", 1)
 	if err == nil || !strings.Contains(err.Error(), "no choices") {
@@ -240,16 +240,16 @@ func TestGenerateDomainSuggestionsNoChoices(t *testing.T) {
 }
 
 func TestGenerateDomainSuggestionsUnmarshalError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"not-json"}}}]}`)
 	}))
 	defer srv.Close()
-suggestionHTTPClient = fakeHTTPClient{srv}
-openAIBaseURL = srv.URL
+	suggestionHTTPClient = fakeHTTPClient{srv}
+	openAIBaseURL = srv.URL
 	t.Cleanup(func() {
-	suggestionHTTPClient = http.DefaultClient
-	openAIBaseURL = defaultOpenAIBase
+		suggestionHTTPClient = http.DefaultClient
+		openAIBaseURL = defaultOpenAIBase
 	})
 	_, err := GenerateDomainSuggestions("key", "", 1)
 	if err == nil || !strings.Contains(err.Error(), "unmarshal structured output") {
@@ -266,5 +266,38 @@ func TestWriteSuggestionsFile_Error(t *testing.T) {
 	err = writeSuggestionsFile(dir, []DomainRecord{{Domain: "a.com"}})
 	if err == nil {
 		t.Fatal("expected error writing to directory, got nil")
+	}
+}
+
+func TestWriteSuggestionsFile_MergeAndDedup(t *testing.T) {
+	tmp, err := os.CreateTemp("", "sugg_merge_*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := tmp.Name()
+	helperClose(t, tmp, "tmp close in merge test")
+	defer helperRemove(t, path)
+
+	err = writeSuggestionsFile(path, []DomainRecord{{Domain: "a.com"}, {Domain: "b.com"}})
+	if err != nil {
+		t.Fatalf("first write error: %v", err)
+	}
+	// second write with overlap and new domain
+	err = writeSuggestionsFile(path, []DomainRecord{{Domain: "a.com"}, {Domain: "c.com"}})
+	if err != nil {
+		t.Fatalf("second write error: %v", err)
+	}
+	raw, _ := os.ReadFile(path) //nolint:gosec // test reading temp file
+	var out ExtendedGroupedData
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// expect a,b,c once each
+	seen := map[string]int{}
+	for _, r := range out.Unverified {
+		seen[r.Domain]++
+	}
+	if len(seen) != 3 || seen["a.com"] != 1 || seen["b.com"] != 1 || seen["c.com"] != 1 {
+		t.Fatalf("unexpected merge result: %+v", out.Unverified)
 	}
 }
