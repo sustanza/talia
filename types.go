@@ -50,24 +50,24 @@ type GroupedDomain struct {
 // It organizes domains into two categories based on their availability status,
 // making it easy to identify which domains can be registered.
 type GroupedData struct {
-    // Available contains all domains that are available for registration.
-    Available []GroupedDomain `json:"available"`
-    // Unavailable contains all domains that are already registered or had errors.
-    Unavailable []GroupedDomain `json:"unavailable"`
+	// Available contains all domains that are available for registration.
+	Available []GroupedDomain `json:"available"`
+	// Unavailable contains all domains that are already registered or had errors.
+	Unavailable []GroupedDomain `json:"unavailable"`
 }
 
 // MarshalJSON ensures GroupedData slices are rendered as [] (not null) when empty.
 // This produces more consistent JSON output for consumers that expect arrays.
 func (g GroupedData) MarshalJSON() ([]byte, error) {
-    type alias GroupedData // prevent recursion
-    a := alias(g)
-    if a.Available == nil {
-        a.Available = make([]GroupedDomain, 0)
-    }
-    if a.Unavailable == nil {
-        a.Unavailable = make([]GroupedDomain, 0)
-    }
-    return json.Marshal(a)
+	type alias GroupedData // prevent recursion
+	a := alias(g)
+	if a.Available == nil {
+		a.Available = make([]GroupedDomain, 0)
+	}
+	if a.Unavailable == nil {
+		a.Unavailable = make([]GroupedDomain, 0)
+	}
+	return json.Marshal(a)
 }
 
 // ExtendedGroupedData extends GroupedData with an additional unverified category.
