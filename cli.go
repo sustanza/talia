@@ -1,12 +1,12 @@
 package talia
 
 import (
-    "context"
-    "encoding/json"
-    "flag"
-    "fmt"
-    "os"
-    "time"
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"time"
 )
 
 // RunCLIDomainArray processes an array of domain records, checking each domain's availability
@@ -29,22 +29,31 @@ import (
 //
 //nolint:gocognit // This function orchestrates the main domain checking workflow.
 func RunCLIDomainArray(
-    whoisServer, inputPath string,
-    domains []DomainRecord,
-    sleep time.Duration,
-    verbose, groupedOutput bool,
-    outputFile string,
-    whoisTimeout time.Duration,
+	whoisServer, inputPath string,
+	domains []DomainRecord,
+	sleep time.Duration,
+	verbose, groupedOutput bool,
+	outputFile string,
+	whoisTimeout time.Duration,
 ) int {
-    groupedData := GroupedData{}
-    client := NetWhoisClient{Server: whoisServer, Timeout: whoisTimeout}
+	groupedData := GroupedData{}
+	client := NetWhoisClient{Server: whoisServer, Timeout: whoisTimeout}
 
 	for _, rec := range domains {
 		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
 
-        ctx, cancel := context.WithTimeout(context.Background(), whoisTimeout)
-        avail, reason, logData, err := CheckDomainAvailabilityWithClientContext(ctx, rec.Domain, client)
-        cancel()
+		// Only apply a context timeout if a positive timeout was provided.
+		var (
+			ctx    context.Context
+			cancel context.CancelFunc
+		)
+		if whoisTimeout > 0 {
+			ctx, cancel = context.WithTimeout(context.Background(), whoisTimeout)
+		} else {
+			ctx, cancel = context.WithCancel(context.Background())
+		}
+		avail, reason, logData, err := CheckDomainAvailabilityWithClientContext(ctx, rec.Domain, client)
+		cancel()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", rec.Domain, err)
 			avail = false
@@ -94,27 +103,26 @@ func RunCLIDomainArray(
 	}
 
 	// Now handle final grouped output if we used --grouped-output
-    if groupedOutput {
-        if outputFile == "" {
-            // Overwrite/merge into input file using grouped file merge semantics
-            if err := WriteGroupedFile(inputPath, groupedData); err != nil {
-                fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", inputPath, err)
-                return 1
-            }
-            fmt.Println("Processing complete in grouped-output mode (overwrote input).")
-        } else {
-            if err := WriteGroupedFile(outputFile, groupedData); err != nil {
-                fmt.Fprintf(os.Stderr, "Error writing grouped file: %v\n", err)
-                return 1
-            }
-            fmt.Println("Processing complete in grouped-output mode (wrote to separate file).")
-        }
-
+	if groupedOutput {
+		if outputFile == "" {
+			// Overwrite/merge into input file using grouped file merge semantics
+			if err := WriteGroupedFile(inputPath, groupedData); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", inputPath, err)
+				return 1
+			}
+			fmt.Println("Processing complete in grouped-output mode (overwrote input).")
+		} else {
+			if err := WriteGroupedFile(outputFile, groupedData); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing grouped file: %v\n", err)
+				return 1
+			}
+			fmt.Println("Processing complete in grouped-output mode (wrote to separate file).")
+		}
 	} else {
 		// Non-grouped mode
 		fmt.Println("Processing complete. Updated file:", inputPath)
 	}
-    return 0
+	return 0
 }
 
 // RunCLIGroupedInput processes ExtendedGroupedData that contains already categorized domains
@@ -134,36 +142,45 @@ func RunCLIDomainArray(
 //
 // Returns an exit code: 0 for success, 1 for errors.
 func RunCLIGroupedInput(
-    whoisServer, inputPath string,
-    ext ExtendedGroupedData,
-    sleep time.Duration,
-    verbose, groupedOutput bool,
-    outputFile string,
-    whoisTimeout time.Duration,
+	whoisServer, inputPath string,
+	ext ExtendedGroupedData,
+	sleep time.Duration,
+	verbose, groupedOutput bool,
+	outputFile string,
+	whoisTimeout time.Duration,
 ) int {
-    // If groupedOutput was NOT specified, we force it here
-    // Determine destination: if no separate output file provided, overwrite inputPath.
-    finalOutputFile := outputFile
-    if !groupedOutput || outputFile == "" {
-        finalOutputFile = inputPath
-    }
+	// If groupedOutput was NOT specified, we force it here
+	// Determine destination: if no separate output file provided, overwrite inputPath.
+	finalOutputFile := outputFile
+	if !groupedOutput || outputFile == "" {
+		finalOutputFile = inputPath
+	}
 
-    // Initialize arrays if they're nil to ensure stable JSON shape.
-    if ext.Available == nil {
-        ext.Available = []GroupedDomain{}
-    }
-    if ext.Unavailable == nil {
-        ext.Unavailable = []GroupedDomain{}
-    }
+	// Initialize arrays if they're nil to ensure stable JSON shape.
+	if ext.Available == nil {
+		ext.Available = []GroupedDomain{}
+	}
+	if ext.Unavailable == nil {
+		ext.Unavailable = []GroupedDomain{}
+	}
 
-    // We'll do whois checks on the "unverified" array.
-    client := NetWhoisClient{Server: whoisServer, Timeout: whoisTimeout}
-    for _, rec := range ext.Unverified {
-        fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
+	// We'll do whois checks on the "unverified" array.
+	client := NetWhoisClient{Server: whoisServer, Timeout: whoisTimeout}
+	for _, rec := range ext.Unverified {
+		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
 
-        ctx, cancel := context.WithTimeout(context.Background(), whoisTimeout)
-        avail, reason, logData, err := CheckDomainAvailabilityWithClientContext(ctx, rec.Domain, client)
-        cancel()
+		// Only apply a context timeout if a positive timeout was provided.
+		var (
+			ctx    context.Context
+			cancel context.CancelFunc
+		)
+		if whoisTimeout > 0 {
+			ctx, cancel = context.WithTimeout(context.Background(), whoisTimeout)
+		} else {
+			ctx, cancel = context.WithCancel(context.Background())
+		}
+		avail, reason, logData, err := CheckDomainAvailabilityWithClientContext(ctx, rec.Domain, client)
+		cancel()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", rec.Domain, err)
 			avail = false
@@ -191,27 +208,27 @@ func RunCLIGroupedInput(
 	// Clear out unverified after we finish checking
 	ext.Unverified = nil
 
-    if groupedOutput && outputFile != "" {
-        // Merge into separate grouped output file
-        gd := GroupedData{Available: ext.Available, Unavailable: ext.Unavailable}
-        if err := WriteGroupedFile(outputFile, gd); err != nil {
-            fmt.Fprintf(os.Stderr, "Error writing grouped file: %v\n", err)
-            return 1
-        }
-        fmt.Println("Processed grouped input (with unverified) and wrote results to:", outputFile)
-    } else {
-        // Overwrite input with updated ExtendedGroupedData
-        out, err := json.MarshalIndent(ext, "", "  ")
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
-            return 1
-        }
-        if err := os.WriteFile(finalOutputFile, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
-            fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", finalOutputFile, err)
-            return 1
-        }
-        fmt.Println("Processed grouped input (with unverified) and overwrote original file.")
-    }
+	if groupedOutput && outputFile != "" {
+		// Merge into separate grouped output file
+		gd := GroupedData{Available: ext.Available, Unavailable: ext.Unavailable}
+		if err := WriteGroupedFile(outputFile, gd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing grouped file: %v\n", err)
+			return 1
+		}
+		fmt.Println("Processed grouped input (with unverified) and wrote results to:", outputFile)
+	} else {
+		// Overwrite input with updated ExtendedGroupedData
+		out, err := json.MarshalIndent(ext, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
+			return 1
+		}
+		if err := os.WriteFile(finalOutputFile, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
+			fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", finalOutputFile, err)
+			return 1
+		}
+		fmt.Println("Processed grouped input (with unverified) and overwrote original file.")
+	}
 
 	return 0
 }
@@ -240,10 +257,10 @@ func RunCLIGroupedInput(
 //
 // Returns an exit code: 0 for success, 1 for errors.
 func RunCLI(args []string) int {
-    fs := flag.NewFlagSet("talia", flag.ContinueOnError)
-    whoisServer := fs.String("whois", "", "WHOIS server, e.g. whois.verisign-grs.com:43 (required)")
-    sleep := fs.Duration("sleep", 2*time.Second, "Time to sleep between domain checks (default 2s)")
-    whoisTimeout := fs.Duration("whois-timeout", 10*time.Second, "Timeout for each WHOIS lookup (default 10s)")
+	fs := flag.NewFlagSet("talia", flag.ContinueOnError)
+	whoisServer := fs.String("whois", "", "WHOIS server, e.g. whois.verisign-grs.com:43 (required)")
+	sleep := fs.Duration("sleep", 2*time.Second, "Time to sleep between domain checks (default 2s)")
+	whoisTimeout := fs.Duration("whois-timeout", 10*time.Second, "Timeout for each WHOIS lookup (default 10s)")
 	verbose := fs.Bool("verbose", false, "Include WHOIS log in 'log' field even for successful checks")
 	groupedOutput := fs.Bool("grouped-output", false, "Enable grouped output (JSON object with 'available','unavailable')")
 	outputFile := fs.String("output-file", "", "Path to grouped output file (if set, input file remains unmodified)")
@@ -256,62 +273,62 @@ func RunCLI(args []string) int {
 		return 1
 	}
 
-    // Avoid mutating package-level state: pass model via options.
+	// Avoid mutating package-level state: pass model via options.
 
 	if fs.NArg() < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: %s --whois=<server:port> [--sleep=2s] [--verbose] [--grouped-output] [--output-file=path] <json-file>\n", fs.Name())
 		return 1
 	}
-    if *suggest > 0 {
-        list, err := GenerateDomainSuggestionsWithContext(
-            context.Background(),
-            os.Getenv("OPENAI_API_KEY"),
-            *prompt,
-            *suggest,
-            SuggestOptions{Model: *model},
-        )
-        if err != nil {
-            fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
-            return 1
-        }
-        if err := writeSuggestionsFile(fs.Arg(0), list); err != nil {
-            fmt.Fprintln(os.Stderr, "Error writing suggestions file:", err)
-            return 1
-        }
-        fmt.Println("Wrote domain suggestions to", fs.Arg(0))
-        return 0
-    }
+	if *suggest > 0 {
+		list, err := GenerateDomainSuggestionsWithContext(
+			context.Background(),
+			os.Getenv("OPENAI_API_KEY"),
+			*prompt,
+			*suggest,
+			SuggestOptions{Model: *model},
+		)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
+			return 1
+		}
+		if err := writeSuggestionsFile(fs.Arg(0), list); err != nil {
+			fmt.Fprintln(os.Stderr, "Error writing suggestions file:", err)
+			return 1
+		}
+		fmt.Println("Wrote domain suggestions to", fs.Arg(0))
+		return 0
+	}
 
 	if *whoisServer == "" {
 		fmt.Fprintln(os.Stderr, "Error: --whois=<server:port> is required")
 		return 1
 	}
 
-    inputPath := fs.Arg(0)
-    // Validate input path before read
-    if fi, err := os.Stat(inputPath); err != nil || fi.IsDir() {
-        fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
-        return 1
-    }
-    raw, err := os.ReadFile(inputPath) //nolint:gosec // User-provided path; validated above
-    if err != nil {
-        fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
-        return 1
-    }
+	inputPath := fs.Arg(0)
+	// Validate input path before read
+	if fi, err := os.Stat(inputPath); err != nil || fi.IsDir() {
+		fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
+		return 1
+	}
+	raw, err := os.ReadFile(inputPath) //nolint:gosec // User-provided path; validated above
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
+		return 1
+	}
 
 	// Attempt to parse input as a simple array of DomainRecord.
 	var domains []DomainRecord
 	err = json.Unmarshal(raw, &domains)
-    if err == nil {
-        // Plain slice of domain records
-        return RunCLIDomainArray(*whoisServer, inputPath, domains, *sleep, *verbose, *groupedOutput, *outputFile, *whoisTimeout)
-    }
+	if err == nil {
+		// Plain slice of domain records
+		return RunCLIDomainArray(*whoisServer, inputPath, domains, *sleep, *verbose, *groupedOutput, *outputFile, *whoisTimeout)
+	}
 
 	// If that fails, try to parse as a grouped JSON that might contain unverified.
 	var ext ExtendedGroupedData
-    if err2 := json.Unmarshal(raw, &ext); err2 == nil {
-        return RunCLIGroupedInput(*whoisServer, inputPath, ext, *sleep, *verbose, *groupedOutput, *outputFile, *whoisTimeout)
-    }
+	if err2 := json.Unmarshal(raw, &ext); err2 == nil {
+		return RunCLIGroupedInput(*whoisServer, inputPath, ext, *sleep, *verbose, *groupedOutput, *outputFile, *whoisTimeout)
+	}
 
 	// If both fail, then it's truly invalid JSON or an unexpected format.
 	fmt.Fprintf(os.Stderr, "Error parsing JSON in %s: %v\n", inputPath, err)
