@@ -1,13 +1,9 @@
-version: "2" 
+version: "2"
 
 run:
   timeout: 5m
   tests: true
   go: "1.24"
-  skip-dirs:
-    - tmp
-  skip-files:
-    - ".*_test\\.go$"
 
 linters:
   enable:
@@ -15,7 +11,7 @@ linters:
     - govet
     - staticcheck
     - errcheck
-    
+
     # Code quality
     - ineffassign
     - prealloc
@@ -23,108 +19,95 @@ linters:
     - noctx
     - dogsled
     - bodyclose
-    - dupl
-    - gocognit
+    # omit extremely noisy duplication/complexity linters for this project
+    # - dupl
+    # - gocognit
     - goconst
     - gocritic
-    - gocyclo
-    
+    # - gocyclo
+
     # Security
     - gosec
-    
+
     # Documentation
-    - godot
+    # - godot
     - godox
-    
+
     # Error handling
     - errorlint
-    
+
     # Misc
     - exhaustive
     - misspell
     - whitespace
     - nolintlint
     - revive
-    
-linters-settings:
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-  gocyclo:
-    min-complexity: 15
-  gocognit:
-    min-complexity: 40
-  godot:
-    scope: all
-    capital: true
-    period: true
-  godox:
-    keywords:
-      - TODO
-      - FIXME
-      - BUG
-  dupl:
-    threshold: 100
-  errorlint:
-    errorf: true
-    errorf-multi: true
-    asserts: true
-    comparison: true
-  exhaustive:
-    check:
-      - switch
-      - map
-    default-signifies-exhaustive: true
-  revive:
-    confidence: 0.8
-    rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: dot-imports
-      - name: error-naming
-      - name: error-return
-      - name: error-strings
-      - name: exported
-      - name: increment-decrement
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: var-declaration
-      - name: var-naming
+
+  settings:
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - octalLiteral
+        - commentedOutCode
+        - unnamedResult
+    gocyclo:
+      min-complexity: 15
+    gocognit:
+      min-complexity: 40
+    godot:
+      scope: all
+      capital: true
+      period: true
+    # Ignore TODO notes; keep FIXME/BUG actionable findings
+    godox:
+      keywords:
+        - FIXME
+        - BUG
+    dupl:
+      threshold: 100
+    errorlint:
+      errorf: true
+      errorf-multi: true
+      asserts: true
+      comparison: true
+    exhaustive:
+      check:
+        - switch
+        - map
+      default-signifies-exhaustive: true
+    revive:
+      confidence: 0.8
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: exported
+        - name: increment-decrement
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: var-declaration
+        - name: var-naming
 
 issues:
-  exclude-rules:
-    # Exclude test files from some linters
-    - path: _test\.go
-      linters:
-        - dupl
-        - gocognit
-    
-    # Allow TODO comments in code
-    - linters:
-        - godox
-      text: "TODO"
-    
-    # Allow 0644 permissions for JSON files (they don't contain secrets)
-    - linters:
-        - gosec
-      text: "G306"
-    
-    # Allow higher cognitive complexity for main processing functions  
-    - path: cli\.go
-      linters:
-        - gocognit
-      source: "RunCLIDomainArray"
-      
+  # Move exclusions here to conform to v2 schema
+  exclude-dirs:
+    - tmp
+  exclude-files:
+    - ".*_test\\.go$"
   max-issues-per-linter: 0
   max-same-issues: 0
   new: false

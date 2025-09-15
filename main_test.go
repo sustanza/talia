@@ -1205,7 +1205,7 @@ func testWriteGroupedFileWithInterface(path string, data interface{}) error {
 	if err != nil {
 		return fmt.Errorf("marshal grouped data: %w", err)
 	}
-	if err := os.WriteFile(path, out, 0600); err != nil {
+	if err := os.WriteFile(path, out, 0o600); err != nil {
 		return fmt.Errorf("write grouped file: %w", err)
 	}
 	return nil

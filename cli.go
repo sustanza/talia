@@ -26,8 +26,6 @@ import (
 //   - whoisTimeout: timeout per WHOIS lookup
 //
 // Returns an exit code: 0 for success, 1 for errors.
-//
-//nolint:gocognit // This function orchestrates the main domain checking workflow.
 func RunCLIDomainArray(
 	whoisServer, inputPath string,
 	domains []DomainRecord,
@@ -78,7 +76,7 @@ func RunCLIDomainArray(
 				fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
 				return 1
 			}
-			if err := os.WriteFile(inputPath, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
+			if err := os.WriteFile(inputPath, out, 0o644); err != nil { //nolint:gosec // JSON files don't contain secrets
 				fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
 				return 1
 			}
@@ -223,7 +221,7 @@ func RunCLIGroupedInput(
 			fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
 			return 1
 		}
-		if err := os.WriteFile(finalOutputFile, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
+		if err := os.WriteFile(finalOutputFile, out, 0o644); err != nil { //nolint:gosec // JSON files don't contain secrets
 			fmt.Fprintf(os.Stderr, "Error writing grouped JSON to %s: %v\n", finalOutputFile, err)
 			return 1
 		}
