@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 )
 
 // mergeGrouped combines two GroupedData structures, with newer entries taking precedence.
@@ -37,18 +35,6 @@ func mergeGrouped(existing, newest GroupedData) GroupedData {
 	}
 	for _, rec := range domainsUnavail {
 		out.Unavailable = append(out.Unavailable, rec)
-	}
-
-	// Deterministic ordering for stable diffs
-	sort.Slice(out.Available, func(i, j int) bool { return out.Available[i].Domain < out.Available[j].Domain })
-	sort.Slice(out.Unavailable, func(i, j int) bool { return out.Unavailable[i].Domain < out.Unavailable[j].Domain })
-
-	// Ensure non-nil slices for JSON [] instead of null
-	if out.Available == nil {
-		out.Available = make([]GroupedDomain, 0)
-	}
-	if out.Unavailable == nil {
-		out.Unavailable = make([]GroupedDomain, 0)
 	}
 	return out
 }
@@ -117,27 +103,7 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 	if err != nil {
 		return fmt.Errorf("marshal grouped data: %w", err)
 	}
-
-	// Atomic write: write to a temp file in the same dir, then rename
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-	tmp, err := os.CreateTemp(dir, "."+base+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	// Ensure the file is closed before rename
-	if _, err := tmp.Write(out); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
+	if err := os.WriteFile(path, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
 		return fmt.Errorf("write grouped file: %w", err)
 	}
 	return nil

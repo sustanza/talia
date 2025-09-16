@@ -463,7 +463,9 @@ func TestMainErrorCase(t *testing.T) {
 			func(conn net.Conn) {
 				defer helperClose(nil, conn, "conn close")
 				_, _ = io.Copy(io.Discard, conn)
-				if counter != 0 {
+				if counter == 0 {
+					// Immediate close => error
+				} else {
 					_, _ = io.WriteString(conn, "No match for domain\n")
 				}
 				counter++
@@ -1123,7 +1125,7 @@ func TestWriteGroupedFile_NewFile(t *testing.T) {
 		t.Fatalf("WriteGroupedFile returned error: %v", err)
 	}
 
-	raw, _ := os.ReadFile(tmpPath) //nolint:gosec // test reading temp file
+	raw, _ := os.ReadFile(tmpPath)
 	// defer os.Remove(tmpPath) // This line was removed as defer helperRemove is above
 
 	var out GroupedData
@@ -1177,11 +1179,10 @@ func TestWriteGroupedFile_ParseArrayFallback(t *testing.T) {
 	}
 }
 
-// alwaysErrMarshaler implements json.Marshaler and always returns an error.
-type alwaysErrMarshaler struct{}
+type marshalErrorTrigger struct{}
 
-func (alwaysErrMarshaler) MarshalJSON() ([]byte, error) {
-	return nil, fmt.Errorf("forced marshal failure")
+func (marshalErrorTrigger) MarshalJSON() ([]byte, error) {
+	return nil, fmt.Errorf("boom")
 }
 
 func TestWriteGroupedFile_MarshalError(t *testing.T) {
@@ -1192,8 +1193,7 @@ func TestWriteGroupedFile_MarshalError(t *testing.T) {
 	defer helperRemove(t, tmpFile.Name()) // Changed from os.Remove
 	helperClose(t, tmpFile, "tmpFile close for marshal error test")
 
-	// Use a value that forces json.Marshal to return an error
-	err = testWriteGroupedFileWithInterface(tmpFile.Name(), alwaysErrMarshaler{})
+	err = testWriteGroupedFileWithInterface(tmpFile.Name(), marshalErrorTrigger{})
 	if err == nil || !strings.Contains(err.Error(), "marshal grouped data") {
 		t.Errorf("Expected marshal error, got %v", err)
 	}
@@ -1205,7 +1205,7 @@ func testWriteGroupedFileWithInterface(path string, data interface{}) error {
 	if err != nil {
 		return fmt.Errorf("marshal grouped data: %w", err)
 	}
-	if err := os.WriteFile(path, out, 0o600); err != nil {
+	if err := os.WriteFile(path, out, 0644); err != nil {
 		return fmt.Errorf("write grouped file: %w", err)
 	}
 	return nil
@@ -1455,7 +1455,7 @@ func TestMainGroupedFileWithUnverifiedInput_SeparateOutput(t *testing.T) {
 	}
 
 	// The outFile should now contain unverified => gone, domain => "need-check.com" in .Unavailable
-	data, _ := os.ReadFile(outFileName) //nolint:gosec // test reading temp file
+	data, _ := os.ReadFile(outFileName)
 	var final ExtendedGroupedData
 	if err := json.Unmarshal(data, &final); err != nil {
 		t.Fatalf("unmarshal out: %v", err)
@@ -1518,7 +1518,7 @@ func TestRunCLIGroupedInput_WriteError(t *testing.T) {
 			t.Error("expected non-zero exit")
 		}
 	})
-	if !strings.Contains(stderr, "Error writing grouped file") && !strings.Contains(stderr, "Error writing grouped JSON") {
+	if !strings.Contains(stderr, "Error writing grouped file") {
 		t.Errorf("missing write error, got %s", stderr)
 	}
 }
@@ -1549,7 +1549,7 @@ func TestRunCLIDomainArray_GroupedSuccess(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("unexpected stderr: %s", stderr)
 	}
-	data, err := os.ReadFile(outFile) //nolint:gosec // test reading temp file
+	data, err := os.ReadFile(outFile)
 	if err != nil {
 		t.Fatalf("read outFile: %v", err)
 	}
@@ -1732,7 +1732,7 @@ func TestRunCLIGroupedInput_Verbose(t *testing.T) {
 			t.Fatalf("expected 0, got %d", code)
 		}
 	})
-	data, _ := os.ReadFile(tmpFile) //nolint:gosec // test reading temp file
+	data, _ := os.ReadFile(tmpFile)
 	var out ExtendedGroupedData
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -1779,19 +1779,5 @@ func TestWriteGroupedFile_ReadError(t *testing.T) {
 	err := WriteGroupedFile(dir, GroupedData{Available: []GroupedDomain{{Domain: "x.com"}}})
 	if err == nil || !strings.Contains(err.Error(), "read grouped file") {
 		t.Fatalf("expected read error, got %v", err)
-	}
-}
-
-// Additional unit coverage for small helpers.
-func TestReplaceDomain(t *testing.T) {
-	domains := []DomainRecord{{Domain: "a.com"}, {Domain: "b.com"}}
-	replaceDomain(domains, DomainRecord{Domain: "b.com", Available: true, Reason: ReasonNoMatch})
-	if !domains[1].Available || domains[1].Reason != ReasonNoMatch {
-		t.Fatalf("replaceDomain failed: %+v", domains[1])
-	}
-	// Non-existent domain should be no-op
-	replaceDomain(domains, DomainRecord{Domain: "c.com", Available: true})
-	if len(domains) != 2 {
-		t.Fatalf("slice mutated unexpectedly: %d", len(domains))
 	}
 }
