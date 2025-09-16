@@ -4,12 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 )
 
-// mergeGrouped combines two GroupedData structures, with newer entries taking precedence.
-// If a domain appears in both structures, the entry from 'newest' will replace the one
-// from 'existing'. A domain can move between available and unavailable categories based
-// on the most recent check. This function ensures no duplicate domains exist in the output.
 func mergeGrouped(existing, newest GroupedData) GroupedData {
 	domainsAvail := make(map[string]GroupedDomain)
 	for _, gd := range existing.Available {
@@ -36,14 +34,25 @@ func mergeGrouped(existing, newest GroupedData) GroupedData {
 	for _, rec := range domainsUnavail {
 		out.Unavailable = append(out.Unavailable, rec)
 	}
+
+	sort.Slice(out.Available, func(i, j int) bool {
+		return out.Available[i].Domain < out.Available[j].Domain
+	})
+	sort.Slice(out.Unavailable, func(i, j int) bool {
+		return out.Unavailable[i].Domain < out.Unavailable[j].Domain
+	})
+
+	if out.Available == nil {
+		out.Available = make([]GroupedDomain, 0)
+	}
+	if out.Unavailable == nil {
+		out.Unavailable = make([]GroupedDomain, 0)
+	}
 	return out
 }
 
-// ConvertArrayToGrouped transforms a flat array of DomainRecord entries into a GroupedData
-// structure, categorizing domains based on their availability status. Available domains
-// (where Available field is true) are placed in the Available group, while all others
-// go to the Unavailable group. The function preserves the Reason and Log fields from
-// each domain record.
+// ConvertArrayToGrouped transforms a slice of DomainRecord values into grouped
+// availability buckets while preserving Reason and Log details.
 func ConvertArrayToGrouped(arr []DomainRecord) GroupedData {
 	var gd GroupedData
 	for _, rec := range arr {
@@ -61,15 +70,9 @@ func ConvertArrayToGrouped(arr []DomainRecord) GroupedData {
 	return gd
 }
 
-// WriteGroupedFile performs an atomic update of a grouped JSON file by reading any existing
-// data, merging it with new results, and writing the combined data back. The function handles
-// three cases for existing files:
-//   - No existing file: writes the new data directly
-//   - Existing GroupedData file: merges with the new data, newer entries take precedence
-//   - Existing DomainRecord array: converts to GroupedData format then merges
-//
-// The write operation is atomic to prevent data corruption. Returns an error if the file
-// operations fail or if the existing file contains invalid JSON.
+// WriteGroupedFile atomically merges grouped WHOIS results into the target path.
+// Existing files are read, merged, and rewritten via a temp-file swap to avoid
+// corruption; legacy array formats are upgraded automatically.
 func WriteGroupedFile(path string, newest GroupedData) error {
 	if path == "" {
 		return nil
@@ -82,7 +85,7 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 		if info.IsDir() {
 			return fmt.Errorf("read grouped file: %s is a directory", path)
 		}
-		raw, err := os.ReadFile(path) //nolint:gosec // User-provided path for JSON data
+		raw, err := os.ReadFile(path) //nolint:gosec // user-provided JSON path
 		if err != nil {
 			return fmt.Errorf("read grouped file: %w", err)
 		}
@@ -103,16 +106,30 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 	if err != nil {
 		return fmt.Errorf("marshal grouped data: %w", err)
 	}
-	if err := os.WriteFile(path, out, 0644); err != nil { //nolint:gosec // JSON files don't contain secrets
+
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	tmp, err := os.CreateTemp(dir, "."+base+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(out); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("write grouped file: %w", err)
 	}
 	return nil
 }
 
-// replaceDomain updates a domain record in-place within a slice of DomainRecord entries.
-// It searches for a record with matching domain name and replaces it with the provided
-// record. This function is used in non-grouped mode to update availability status after
-// each WHOIS check. If no matching domain is found, the function returns without error.
 func replaceDomain(domains []DomainRecord, rec DomainRecord) {
 	for i, d := range domains {
 		if d.Domain == rec.Domain {
