@@ -26,21 +26,36 @@ type suggestionSchema struct {
 	Unverified []DomainRecord `json:"unverified"`
 }
 
-// Default HTTP client and base URL for the OpenAI API.
+// httpDoer abstracts HTTP client for testing.
 type httpDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+// Test hooks for integration tests that exercise RunCLI.
+// These are not exported and should only be set by tests.
 var (
-	suggestionHTTPClient httpDoer = http.DefaultClient
-	openAIBase                    = defaultOpenAIBase
-	openAIModel                   = defaultOpenAIModel
+	testHTTPClient httpDoer
+	testBaseURL    string
 )
 
 // GenerateDomainSuggestions contacts the OpenAI API using structured output
 // to get domain suggestions. The returned list can be used as the
 // "unverified" field in an ExtendedGroupedData file.
-func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord, error) {
+func GenerateDomainSuggestions(apiKey, prompt string, count int, model string) ([]DomainRecord, error) {
+	client := httpDoer(http.DefaultClient)
+	baseURL := defaultOpenAIBase
+	if testHTTPClient != nil {
+		client = testHTTPClient
+	}
+	if testBaseURL != "" {
+		baseURL = testBaseURL
+	}
+	return generateSuggestions(apiKey, prompt, count, model, client, baseURL)
+}
+
+// generateSuggestions is the internal implementation that accepts dependencies
+// as parameters, enabling parallel tests without shared mutable state.
+func generateSuggestions(apiKey, prompt string, count int, model string, client httpDoer, baseURL string) ([]DomainRecord, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("OPENAI_API_KEY is not set")
 	}
@@ -73,7 +88,7 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 	}
 
 	body := map[string]any{
-		"model": openAIModel,
+		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": fmt.Sprintf(userPromptTemplate, prompt, count)},
@@ -87,14 +102,14 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int) ([]DomainRecord
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIBase+"/chat/completions", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := suggestionHTTPClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("openai request: %w", err)
 	}
