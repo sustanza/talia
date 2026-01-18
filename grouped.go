@@ -95,12 +95,3 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 	return nil
 }
 
-// replaceDomain is used in non-grouped mode to update a domain's record in the slice.
-func replaceDomain(domains []DomainRecord, rec DomainRecord) {
-	for i, d := range domains {
-		if d.Domain == rec.Domain {
-			domains[i] = rec
-			return
-		}
-	}
-}

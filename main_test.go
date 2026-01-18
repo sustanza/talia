@@ -1076,30 +1076,6 @@ func TestCheckDomainAvailability_ReadError(t *testing.T) {
 	}
 }
 
-// TestReplaceDomain_NotFound ensures we cover the scenario where replaceDomain
-// doesn't find a matching domain.
-func TestReplaceDomain_NotFound(t *testing.T) {
-	original := []DomainRecord{
-		{Domain: "existing.com", Available: false},
-	}
-	newRec := DomainRecord{Domain: "not-found.com", Available: true}
-
-	replaceDomain(original, newRec)
-	// The array should remain unchanged if domain not found
-	if len(original) != 1 || original[0].Domain != "existing.com" {
-		t.Error("replaceDomain incorrectly replaced a non-existent domain")
-	}
-}
-
-func TestReplaceDomain_Found(t *testing.T) {
-	original := []DomainRecord{{Domain: "d.com", Available: false}}
-	newRec := DomainRecord{Domain: "d.com", Available: true}
-	replaceDomain(original, newRec)
-	if !original[0].Available {
-		t.Error("domain record was not replaced")
-	}
-}
-
 func TestWriteGroupedFile_EmptyPath(t *testing.T) {
 	err := WriteGroupedFile("", GroupedData{})
 	if err != nil {

@@ -10,6 +10,52 @@ import (
 	"time"
 )
 
+// checkResult holds the result of a single domain availability check.
+type checkResult struct {
+	Domain string
+	Avail  bool
+	Reason AvailabilityReason
+	Log    string
+}
+
+// shouldIncludeLog determines whether to include the WHOIS log in output.
+func shouldIncludeLog(verbose bool, reason AvailabilityReason) bool {
+	return verbose || reason == ReasonError
+}
+
+// checkDomains performs WHOIS checks on a list of domains and returns the results.
+func checkDomains(domains []string, whoisServer string, sleep time.Duration, verbose bool) []checkResult {
+	results := make([]checkResult, 0, len(domains))
+
+	for _, domain := range domains {
+		fmt.Printf("Checking %s on %s\n", domain, whoisServer)
+
+		avail, reason, logData, err := CheckDomainAvailability(domain, whoisServer)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", domain, err)
+			avail = false
+			reason = ReasonError
+			logData = fmt.Sprintf("Error: %v", err)
+		}
+
+		log := ""
+		if shouldIncludeLog(verbose, reason) {
+			log = logData
+		}
+
+		results = append(results, checkResult{
+			Domain: domain,
+			Avail:  avail,
+			Reason: reason,
+			Log:    log,
+		})
+
+		time.Sleep(sleep)
+	}
+
+	return results
+}
+
 // RunCLIDomainArray handles the original array input logic (non-grouped or grouped output).
 func RunCLIDomainArray(
 	whoisServer, inputPath string,
@@ -18,65 +64,49 @@ func RunCLIDomainArray(
 	verbose, groupedOutput bool,
 	outputFile string,
 ) int {
-	groupedData := GroupedData{}
+	// Extract domain names for checking
+	domainNames := make([]string, len(domains))
+	for i := range domains {
+		domainNames[i] = domains[i].Domain
+	}
 
-	for _, rec := range domains {
-		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
+	results := checkDomains(domainNames, whoisServer, sleep, verbose)
 
-		avail, reason, logData, err := CheckDomainAvailability(rec.Domain, whoisServer)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", rec.Domain, err)
-			avail = false
-			reason = ReasonError
-			logData = fmt.Sprintf("Error: %v", err)
+	if !groupedOutput {
+		// =========== Non-Grouped Mode ===========
+		for i, res := range results {
+			domains[i].Available = res.Avail
+			domains[i].Reason = res.Reason
+			domains[i].Log = res.Log
 		}
 
-		if !groupedOutput {
-			// =========== Non-Grouped Mode ===========
-			rec.Available = avail
-			rec.Reason = reason
-			if verbose || reason == ReasonError {
-				rec.Log = logData
-			} else {
-				rec.Log = ""
-			}
-			replaceDomain(domains, rec)
-
-			// Write the updated array back to the same file after each domain
-			out, err := json.MarshalIndent(domains, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
-				return 1
-			}
-			if err := os.WriteFile(inputPath, out, 0644); err != nil {
-				fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
-				return 1
-			}
-
-		} else {
-			// =========== Grouped Mode ===========
+		out, err := json.MarshalIndent(domains, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
+			return 1
+		}
+		if err := os.WriteFile(inputPath, out, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
+			return 1
+		}
+		fmt.Println("Processing complete. Updated file:", inputPath)
+	} else {
+		// =========== Grouped Mode ===========
+		groupedData := GroupedData{}
+		for _, res := range results {
 			gd := GroupedDomain{
-				Domain: rec.Domain,
-				Reason: reason,
+				Domain: res.Domain,
+				Reason: res.Reason,
+				Log:    res.Log,
 			}
-			if verbose || reason == ReasonError {
-				gd.Log = logData
-			}
-
-			if avail {
+			if res.Avail {
 				groupedData.Available = append(groupedData.Available, gd)
 			} else {
 				groupedData.Unavailable = append(groupedData.Unavailable, gd)
 			}
 		}
 
-		time.Sleep(sleep)
-	}
-
-	// Now handle final grouped output if we used --grouped-output
-	if groupedOutput {
 		if outputFile == "" {
-			// Overwrite input file with grouped JSON
 			mergedOut, err := json.MarshalIndent(groupedData, "", "  ")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error marshaling grouped JSON: %v\n", err)
@@ -94,10 +124,6 @@ func RunCLIDomainArray(
 			}
 			fmt.Println("Processing complete in grouped-output mode (wrote to separate file).")
 		}
-
-	} else {
-		// Non-grouped mode
-		fmt.Println("Processing complete. Updated file:", inputPath)
 	}
 
 	return 0
@@ -111,13 +137,11 @@ func RunCLIGroupedInput(
 	verbose, groupedOutput bool,
 	outputFile string,
 ) int {
-	// If groupedOutput was NOT specified, we force it here
 	finalOutputFile := outputFile
 	if !groupedOutput || outputFile == "" {
 		finalOutputFile = inputPath
 	}
 
-	// Initialize arrays if they're nil
 	if ext.Available == nil {
 		ext.Available = []GroupedDomain{}
 	}
@@ -125,36 +149,27 @@ func RunCLIGroupedInput(
 		ext.Unavailable = []GroupedDomain{}
 	}
 
-	// We'll do whois checks on the "unverified" array.
-	for _, rec := range ext.Unverified {
-		fmt.Printf("Checking %s on %s\n", rec.Domain, whoisServer)
+	// Extract domain names for checking
+	domainNames := make([]string, len(ext.Unverified))
+	for i := range ext.Unverified {
+		domainNames[i] = ext.Unverified[i].Domain
+	}
 
-		avail, reason, logData, err := CheckDomainAvailability(rec.Domain, whoisServer)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", rec.Domain, err)
-			avail = false
-			reason = ReasonError
-			logData = fmt.Sprintf("Error: %v", err)
-		}
+	results := checkDomains(domainNames, whoisServer, sleep, verbose)
 
+	for _, res := range results {
 		gd := GroupedDomain{
-			Domain: rec.Domain,
-			Reason: reason,
+			Domain: res.Domain,
+			Reason: res.Reason,
+			Log:    res.Log,
 		}
-		if verbose || reason == ReasonError {
-			gd.Log = logData
-		}
-
-		if avail {
+		if res.Avail {
 			ext.Available = append(ext.Available, gd)
 		} else {
 			ext.Unavailable = append(ext.Unavailable, gd)
 		}
-
-		time.Sleep(sleep)
 	}
 
-	// Clear out unverified after we finish checking
 	ext.Unverified = nil
 
 	out, err := json.MarshalIndent(ext, "", "  ")
@@ -193,14 +208,12 @@ func RunCLI(args []string) int {
 		return 1
 	}
 
-	openAIModel = *model
-
 	if fs.NArg() < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: %s --whois=<server:port> [--sleep=2s] [--verbose] [--grouped-output] [--output-file=path] <json-file>\n", fs.Name())
 		return 1
 	}
 	if *suggest > 0 {
-		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), *prompt, *suggest)
+		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), *prompt, *suggest, *model)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
 			return 1
