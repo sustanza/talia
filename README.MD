@@ -134,14 +134,19 @@ As shown above, `--sleep` changes how long Talia waits between domain checks.
 
 ### Generating Domain Suggestions
 
-Talia can use AI (OpenAI or compatible APIs) to generate domain name ideas. This feature requires an **OpenAI API key** and internet access.
+Talia can use AI (OpenAI, Gemini, or other OpenAI-compatible APIs) to generate domain name ideas. This feature requires an API key and internet access.
 
-- **API Key Requirement:** Set the `OPENAI_API_KEY` environment variable with your OpenAI API key. See [OpenAI API documentation](https://platform.openai.com/docs/api-reference/authentication) for details on obtaining a key.
-- **Network Access:** The machine running Talia must be able to reach the OpenAI API endpoint.
+- **API Key Requirement:** Set the `OPENAI_API_KEY` environment variable with your API key.
+- **Network Access:** The machine running Talia must be able to reach the API endpoint.
+- **Alternative APIs:** Use `--api-base` or the `OPENAI_API_BASE` environment variable to point to OpenAI-compatible APIs like Google Gemini.
 
-Use the `--suggest` flag to create a JSON file containing domain ideas without running any WHOIS checks. The result is written in the same grouped format with an `"unverified"` array so you can immediately feed it back into Talia for checking. You can change the OpenAI model with `--model` if you have access to alternatives.
+Use the `--suggest` flag to create a JSON file containing domain ideas without running any WHOIS checks. The result is written in the same grouped format with an `"unverified"` array so you can immediately feed it back into Talia for checking. You can change the model with `--model`.
 
+    # OpenAI (default)
     OPENAI_API_KEY=... ./talia --suggest=5 --prompt="three word tech names ending in .com" --model=gpt-4o suggestions.json
+
+    # Google Gemini
+    OPENAI_API_KEY=... ./talia --suggest=5 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-2.0-flash --prompt="short brandable names" suggestions.json
 
 **Important:** Talia will instruct the AI to only return domain names ending in `.com`. If the AI still returns domains without `.com`, Talia will not automatically fix them. You may need to adjust your prompt or manually add `.com` to the results. This will become more flexible for other TLDs in the future.
 
@@ -269,7 +274,8 @@ Talia's test suite covers:
 - **`--output-file=<path>`**: If provided, Talia merges/writes grouped JSON to this file and leaves the input alone
 - **`--suggest=<n>`**: Generate <n> domain suggestions instead of running WHOIS checks
 - **`--prompt=<text>`**: Optional text to influence domain suggestion themes
-- **`--model=<name>`**: OpenAI model to use when generating suggestions
+- **`--model=<name>`**: Model to use when generating suggestions (default: gpt-4o)
+- **`--api-base=<url>`**: Base URL for OpenAI-compatible API (default: https://api.openai.com/v1). Can also be set via `OPENAI_API_BASE` environment variable.
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains
 
 ---
