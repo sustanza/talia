@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -245,7 +246,17 @@ func RunCLI(args []string) int {
 		return 0
 	}
 
-	if *suggest > 0 {
+	// Use env var if --suggest not provided
+	suggestCount := *suggest
+	if suggestCount == 0 {
+		if envSuggest := os.Getenv("TALIA_SUGGEST"); envSuggest != "" {
+			if n, err := strconv.Atoi(envSuggest); err == nil {
+				suggestCount = n
+			}
+		}
+	}
+
+	if suggestCount > 0 {
 		baseURL := *apiBase
 		if baseURL == "" {
 			baseURL = os.Getenv("OPENAI_API_BASE")
@@ -253,12 +264,17 @@ func RunCLI(args []string) int {
 		if baseURL == "" {
 			baseURL = defaultOpenAIBase
 		}
+		// Use env var if --prompt not provided
+		promptText := *prompt
+		if promptText == "" {
+			promptText = os.Getenv("TALIA_PROMPT")
+		}
 		// Read existing domains to avoid duplicates (unless --fresh is set)
 		var existingDomains []string
 		if !*fresh {
 			existingDomains = readExistingDomains(fs.Arg(0))
 		}
-		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), *prompt, *suggest, *model, baseURL, existingDomains)
+		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), promptText, suggestCount, *model, baseURL, existingDomains)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
 			return 1

@@ -148,6 +148,8 @@ Example `.env` file:
 OPENAI_API_KEY=your-api-key
 OPENAI_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
 WHOIS_SERVER=whois.verisign-grs.com:43
+TALIA_PROMPT=short brandable startup names
+TALIA_SUGGEST=10
 ```
 
 Use the `--suggest` flag to generate domain ideas. If you also provide `--whois`, Talia will automatically verify the suggestions via WHOIS (with a fast 100ms delay between checks). Use `--no-verify` to skip auto-verification and just write suggestions. You can change the model with `--model`.
@@ -304,8 +306,8 @@ Talia's test suite covers:
 - **`--verbose`**: Store WHOIS data in `"log"` even for successful checks
 - **`--grouped-output`**: Switch to grouped output
 - **`--output-file=<path>`**: If provided, Talia merges/writes grouped JSON to this file and leaves the input alone
-- **`--suggest=<n>`**: Generate <n> domain suggestions instead of running WHOIS checks
-- **`--prompt=<text>`**: Optional text to influence domain suggestion themes
+- **`--suggest=<n>`**: Generate <n> domain suggestions (can also be set via `TALIA_SUGGEST` env var)
+- **`--prompt=<text>`**: Text to influence domain suggestion themes (can also be set via `TALIA_PROMPT` env var)
 - **`--model=<name>`**: Model to use when generating suggestions (default: gpt-4o)
 - **`--api-base=<url>`**: Base URL for OpenAI-compatible API (default: https://api.openai.com/v1). Can also be set via `OPENAI_API_BASE` environment variable.
 - **`--fresh`**: Don't pass existing domains to AI when generating suggestions (allows duplicates, starts fresh)
