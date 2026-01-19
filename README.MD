@@ -142,8 +142,8 @@ Talia can use AI (OpenAI, Gemini, or other OpenAI-compatible APIs) to generate d
 
 Use the `--suggest` flag to create a JSON file containing domain ideas without running any WHOIS checks. The result is written in the same grouped format with an `"unverified"` array so you can immediately feed it back into Talia for checking. You can change the model with `--model`.
 
-    # OpenAI (default)
-    OPENAI_API_KEY=... ./talia --suggest=5 --prompt="three word tech names ending in .com" --model=gpt-4o suggestions.json
+    # OpenAI
+    OPENAI_API_KEY=... ./talia --suggest=5 --prompt="three word tech names ending in .com" --model=gpt-5-mini suggestions.json
 
     # Google Gemini
     OPENAI_API_KEY=... ./talia --suggest=5 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-2.0-flash --prompt="short brandable names" suggestions.json
