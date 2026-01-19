@@ -203,6 +203,7 @@ func RunCLI(args []string) int {
 	prompt := fs.String("prompt", "", "Optional prompt to influence domain suggestions")
 	model := fs.String("model", defaultOpenAIModel, "OpenAI model to use for suggestions")
 	apiBase := fs.String("api-base", "", "Base URL for OpenAI-compatible API (default: https://api.openai.com/v1)")
+	fresh := fs.Bool("fresh", false, "Don't pass existing domains to AI (allows duplicates, starts fresh)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
@@ -221,7 +222,12 @@ func RunCLI(args []string) int {
 		if baseURL == "" {
 			baseURL = defaultOpenAIBase
 		}
-		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), *prompt, *suggest, *model, baseURL)
+		// Read existing domains to avoid duplicates (unless --fresh is set)
+		var existingDomains []string
+		if !*fresh {
+			existingDomains = readExistingDomains(fs.Arg(0))
+		}
+		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), *prompt, *suggest, *model, baseURL, existingDomains)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
 			return 1

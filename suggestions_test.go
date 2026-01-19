@@ -31,7 +31,7 @@ func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL)
+	got, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err != nil {
 		t.Fatalf("generateSuggestions returned error: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestGenerateDomainSuggestionsHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL)
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err == nil {
 		t.Fatal("expected error on HTTP 500")
 	}
@@ -170,7 +170,7 @@ func TestRunCLISuggestModelFlag(t *testing.T) {
 
 func TestGenerateDomainSuggestionsNoAPIKey(t *testing.T) {
 	t.Parallel()
-	_, err := generateSuggestions("", "", 1, "gpt-4o", http.DefaultClient, "")
+	_, err := generateSuggestions("", "", 1, "gpt-4o", http.DefaultClient, "", nil)
 	if err == nil || err.Error() != "OPENAI_API_KEY is not set" {
 		t.Fatalf("expected OPENAI_API_KEY error, got %v", err)
 	}
@@ -184,7 +184,7 @@ func (errClient) Do(*http.Request) (*http.Response, error) {
 
 func TestGenerateDomainSuggestionsRequestError(t *testing.T) {
 	t.Parallel()
-	_, err := generateSuggestions("key", "", 1, "gpt-4o", errClient{}, "http://localhost")
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", errClient{}, "http://localhost", nil)
 	if err == nil || !strings.Contains(err.Error(), "openai request") {
 		t.Fatalf("expected openai request error, got %v", err)
 	}
@@ -197,7 +197,7 @@ func TestGenerateDomainSuggestionsDecodeError(t *testing.T) {
 		_, _ = io.WriteString(w, "not-json")
 	}))
 	defer srv.Close()
-	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL)
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err == nil || !strings.Contains(err.Error(), "decode response") {
 		t.Fatalf("expected decode error, got %v", err)
 	}
@@ -210,7 +210,7 @@ func TestGenerateDomainSuggestionsNoChoices(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[]}`)
 	}))
 	defer srv.Close()
-	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL)
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err == nil || !strings.Contains(err.Error(), "no choices") {
 		t.Fatalf("expected no choices error, got %v", err)
 	}
@@ -223,7 +223,7 @@ func TestGenerateDomainSuggestionsNoToolCalls(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[]}}]}`)
 	}))
 	defer srv.Close()
-	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL)
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err == nil || !strings.Contains(err.Error(), "no tool calls") {
 		t.Fatalf("expected no tool calls error, got %v", err)
 	}
@@ -236,7 +236,7 @@ func TestGenerateDomainSuggestionsUnmarshalError(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"not-json"}}]}}]}`)
 	}))
 	defer srv.Close()
-	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL)
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err == nil || !strings.Contains(err.Error(), "unmarshal structured output") {
 		t.Fatalf("expected unmarshal error, got %v", err)
 	}

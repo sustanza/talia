@@ -7,15 +7,17 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 )
 
 const (
-	defaultOpenAIBase  = "https://api.openai.com/v1"
-	systemPrompt       = "You generate domain name ideas. All domain names must end with .com. Do not return any domain without .com."
-	userPromptTemplate = "%s Return %d unique domain suggestions in the 'unverified' array. Each domain must end with .com. Do not return any domain without .com."
-	defaultOpenAIModel = "gpt-4o"
-	functionName       = "suggest_domains"
-	functionDesc       = "Generate domain name ideas."
+	defaultOpenAIBase       = "https://api.openai.com/v1"
+	systemPrompt            = "You generate domain name ideas. All domain names must end with .com. Do not return any domain without .com."
+	userPromptTemplate      = "%s Return %d unique domain suggestions in the 'unverified' array. Each domain must end with .com. Do not return any domain without .com."
+	userPromptWithExcludes  = "%s Return %d unique domain suggestions in the 'unverified' array. Each domain must end with .com. Do not return any domain without .com. Do NOT suggest any of these existing domains: %s"
+	defaultOpenAIModel      = "gpt-4o"
+	functionName            = "suggest_domains"
+	functionDesc            = "Generate domain name ideas."
 )
 
 // suggestionSchema defines the JSON structure returned by OpenAI when
@@ -40,8 +42,9 @@ var (
 
 // GenerateDomainSuggestions contacts the OpenAI API using structured output
 // to get domain suggestions. The returned list can be used as the
-// "unverified" field in an ExtendedGroupedData file.
-func GenerateDomainSuggestions(apiKey, prompt string, count int, model, baseURL string) ([]DomainRecord, error) {
+// "unverified" field in an ExtendedGroupedData file. If existingDomains is
+// provided, the AI is instructed to avoid suggesting those domains.
+func GenerateDomainSuggestions(apiKey, prompt string, count int, model, baseURL string, existingDomains []string) ([]DomainRecord, error) {
 	client := httpDoer(http.DefaultClient)
 	if testHTTPClient != nil {
 		client = testHTTPClient
@@ -49,12 +52,12 @@ func GenerateDomainSuggestions(apiKey, prompt string, count int, model, baseURL 
 	if testBaseURL != "" {
 		baseURL = testBaseURL
 	}
-	return generateSuggestions(apiKey, prompt, count, model, client, baseURL)
+	return generateSuggestions(apiKey, prompt, count, model, client, baseURL, existingDomains)
 }
 
 // generateSuggestions is the internal implementation that accepts dependencies
 // as parameters, enabling parallel tests without shared mutable state.
-func generateSuggestions(apiKey, prompt string, count int, model string, client httpDoer, baseURL string) ([]DomainRecord, error) {
+func generateSuggestions(apiKey, prompt string, count int, model string, client httpDoer, baseURL string, existingDomains []string) ([]DomainRecord, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("OPENAI_API_KEY is not set")
 	}
@@ -89,11 +92,19 @@ func generateSuggestions(apiKey, prompt string, count int, model string, client 
 		},
 	}
 
+	// Build user prompt, including existing domains to avoid if any
+	var userContent string
+	if len(existingDomains) > 0 {
+		userContent = fmt.Sprintf(userPromptWithExcludes, prompt, count, strings.Join(existingDomains, ", "))
+	} else {
+		userContent = fmt.Sprintf(userPromptTemplate, prompt, count)
+	}
+
 	body := map[string]any{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": fmt.Sprintf(userPromptTemplate, prompt, count)},
+			{"role": "user", "content": userContent},
 		},
 		"tools": tools,
 		"tool_choice": map[string]any{
@@ -155,17 +166,65 @@ func generateSuggestions(apiKey, prompt string, count int, model string, client 
 }
 
 // writeSuggestionsFile writes the suggested domains to path in the
-// ExtendedGroupedData format.
+// ExtendedGroupedData format. If the file already exists, it merges
+// new suggestions with existing data and deduplicates.
 func writeSuggestionsFile(path string, list []DomainRecord) error {
-	// Remove any fields except Domain from each DomainRecord for suggestions output
-	pruned := make([]DomainRecord, 0, len(list))
-	for _, rec := range list {
-		pruned = append(pruned, DomainRecord{Domain: rec.Domain})
+	// Read existing file if it exists
+	var existing ExtendedGroupedData
+	if raw, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(raw, &existing)
 	}
-	data := ExtendedGroupedData{Unverified: pruned}
-	b, err := json.MarshalIndent(data, "", "  ")
+
+	// Build set of all existing domains for deduplication
+	seen := make(map[string]bool)
+	for _, d := range existing.Available {
+		seen[strings.ToLower(d.Domain)] = true
+	}
+	for _, d := range existing.Unavailable {
+		seen[strings.ToLower(d.Domain)] = true
+	}
+	for _, d := range existing.Unverified {
+		seen[strings.ToLower(d.Domain)] = true
+	}
+
+	// Add new suggestions if not already present
+	for _, rec := range list {
+		domain := strings.ToLower(rec.Domain)
+		if !seen[domain] {
+			seen[domain] = true
+			existing.Unverified = append(existing.Unverified, DomainRecord{Domain: rec.Domain})
+		}
+	}
+
+	b, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, b, 0644)
+}
+
+// readExistingDomains reads all domains from an existing suggestions file
+// for use in avoiding duplicates when generating new suggestions.
+func readExistingDomains(path string) []string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+
+	var data ExtendedGroupedData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil
+	}
+
+	var domains []string
+	for _, d := range data.Available {
+		domains = append(domains, d.Domain)
+	}
+	for _, d := range data.Unavailable {
+		domains = append(domains, d.Domain)
+	}
+	for _, d := range data.Unverified {
+		domains = append(domains, d.Domain)
+	}
+	return domains
 }
