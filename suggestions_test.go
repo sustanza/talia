@@ -254,3 +254,46 @@ func TestWriteSuggestionsFile_Error(t *testing.T) {
 		t.Fatal("expected error writing to directory, got nil")
 	}
 }
+
+func TestNormalizeDomain(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  string
+	}{
+		// Valid domains
+		{"example.com", "example.com"},
+		{"EXAMPLE.COM", "example.com"},
+		{"  example.com  ", "example.com"},
+
+		// Repeated .com suffixes
+		{"example.com.com", "example.com"},
+		{"example.com.com.com", "example.com"},
+		{"Lordboard..com.com.com", "lordboard.com"},
+
+		// Double dots
+		{"example..com", "example.com"},
+		{"ex..am..ple.com", ""}, // becomes ex.am.ple.com which has subdomains, invalid
+
+		// Invalid: wrong TLD
+		{"example.net", ""},
+		{"example.org", ""},
+
+		// Invalid: no name
+		{".com", ""},
+		{"", ""},
+
+		// Invalid: subdomains (not simple name.com)
+		{"sub.example.com", ""},
+		{"a.b.com", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := normalizeDomain(tt.input)
+			if got != tt.want {
+				t.Errorf("normalizeDomain(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

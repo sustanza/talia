@@ -165,6 +165,35 @@ func generateSuggestions(apiKey, prompt string, count int, model string, client 
 	return out.Unverified, nil
 }
 
+// normalizeDomain cleans up and validates a domain name.
+// Returns empty string if the domain is invalid.
+func normalizeDomain(domain string) string {
+	d := strings.TrimSpace(strings.ToLower(domain))
+
+	// Strip repeated .com suffixes
+	for strings.HasSuffix(d, ".com.com") {
+		d = strings.TrimSuffix(d, ".com")
+	}
+
+	// Remove double dots
+	for strings.Contains(d, "..") {
+		d = strings.ReplaceAll(d, "..", ".")
+	}
+
+	// Must end with .com
+	if !strings.HasSuffix(d, ".com") {
+		return ""
+	}
+
+	// Basic format validation: name.com
+	parts := strings.Split(d, ".")
+	if len(parts) != 2 || parts[0] == "" {
+		return ""
+	}
+
+	return d
+}
+
 // writeSuggestionsFile writes the suggested domains to path in the
 // ExtendedGroupedData format. If the file already exists, it merges
 // new suggestions with existing data and deduplicates.
@@ -189,10 +218,13 @@ func writeSuggestionsFile(path string, list []DomainRecord) error {
 
 	// Add new suggestions if not already present
 	for _, rec := range list {
-		domain := strings.ToLower(rec.Domain)
+		domain := normalizeDomain(rec.Domain)
+		if domain == "" {
+			continue // skip invalid
+		}
 		if !seen[domain] {
 			seen[domain] = true
-			existing.Unverified = append(existing.Unverified, DomainRecord{Domain: rec.Domain})
+			existing.Unverified = append(existing.Unverified, DomainRecord{Domain: domain})
 		}
 	}
 
@@ -201,6 +233,68 @@ func writeSuggestionsFile(path string, list []DomainRecord) error {
 		return err
 	}
 	return os.WriteFile(path, b, 0644)
+}
+
+// cleanSuggestionsFile reads an existing suggestions file, normalizes all domains,
+// removes invalid ones, deduplicates, and writes back. Returns count of removed domains.
+func cleanSuggestionsFile(path string) (removed []string, err error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var data ExtendedGroupedData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool)
+	var cleaned ExtendedGroupedData
+
+	// Process available
+	for _, d := range data.Available {
+		n := normalizeDomain(d.Domain)
+		if n == "" {
+			removed = append(removed, d.Domain)
+			continue
+		}
+		if !seen[n] {
+			seen[n] = true
+			cleaned.Available = append(cleaned.Available, GroupedDomain{Domain: n, Reason: d.Reason, Log: d.Log})
+		}
+	}
+
+	// Process unavailable
+	for _, d := range data.Unavailable {
+		n := normalizeDomain(d.Domain)
+		if n == "" {
+			removed = append(removed, d.Domain)
+			continue
+		}
+		if !seen[n] {
+			seen[n] = true
+			cleaned.Unavailable = append(cleaned.Unavailable, GroupedDomain{Domain: n, Reason: d.Reason, Log: d.Log})
+		}
+	}
+
+	// Process unverified
+	for _, d := range data.Unverified {
+		n := normalizeDomain(d.Domain)
+		if n == "" {
+			removed = append(removed, d.Domain)
+			continue
+		}
+		if !seen[n] {
+			seen[n] = true
+			cleaned.Unverified = append(cleaned.Unverified, DomainRecord{Domain: n})
+		}
+	}
+
+	out, err := json.MarshalIndent(cleaned, "", "  ")
+	if err != nil {
+		return removed, err
+	}
+	return removed, os.WriteFile(path, out, 0644)
 }
 
 // readExistingDomains reads all domains from an existing suggestions file

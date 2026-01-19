@@ -204,6 +204,7 @@ func RunCLI(args []string) int {
 	model := fs.String("model", defaultOpenAIModel, "OpenAI model to use for suggestions")
 	apiBase := fs.String("api-base", "", "Base URL for OpenAI-compatible API (default: https://api.openai.com/v1)")
 	fresh := fs.Bool("fresh", false, "Don't pass existing domains to AI (allows duplicates, starts fresh)")
+	clean := fs.Bool("clean", false, "Clean and normalize domains in the file (removes invalid domains)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
@@ -214,6 +215,24 @@ func RunCLI(args []string) int {
 		fmt.Fprintf(os.Stderr, "Usage: %s --whois=<server:port> [--sleep=2s] [--verbose] [--grouped-output] [--output-file=path] <json-file>\n", fs.Name())
 		return 1
 	}
+	if *clean {
+		removed, err := cleanSuggestionsFile(fs.Arg(0))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error cleaning file:", err)
+			return 1
+		}
+		if len(removed) > 0 {
+			fmt.Printf("Removed %d invalid domains:\n", len(removed))
+			for _, d := range removed {
+				fmt.Printf("  - %s\n", d)
+			}
+		} else {
+			fmt.Println("No invalid domains found.")
+		}
+		fmt.Println("Cleaned", fs.Arg(0))
+		return 0
+	}
+
 	if *suggest > 0 {
 		baseURL := *apiBase
 		if baseURL == "" {

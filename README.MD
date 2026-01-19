@@ -16,6 +16,8 @@ Talia is a lightweight command-line application for checking the availability of
   - [JSON Input Format](#json-input-format)
   - [Domain Checks and Rate Limiting](#domain-checks-and-rate-limiting)
   - [Optional Sleep Flag](#optional-sleep-flag)
+  - [Generating Domain Suggestions](#generating-domain-suggestions)
+  - [Cleaning Domain Files](#cleaning-domain-files)
   - [Verbose Mode](#verbose-mode)
   - [Grouped Output](#grouped-output)
   - [Unverified Domains in Grouped Files](#unverified-domains-in-grouped-files)
@@ -154,7 +156,7 @@ Use the `--suggest` flag to create a JSON file containing domain ideas without r
     # Google Gemini
     OPENAI_API_KEY=... ./talia --suggest=5 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-3.0-flash --prompt="short brandable names" suggestions.json
 
-**Important:** Talia will instruct the AI to only return domain names ending in `.com`. If the AI still returns domains without `.com`, Talia will not automatically fix them. You may need to adjust your prompt or manually add `.com` to the results. This will become more flexible for other TLDs in the future.
+**Important:** Talia will instruct the AI to only return domain names ending in `.com`. Talia automatically validates and normalizes all suggestions, fixing common issues like repeated `.com` suffixes (e.g., `example.com.com.com`) and double dots. Domains that can't be normalized to valid `name.com` format are silently discarded.
 
 **Example output (`suggestions.json`):**
 
@@ -177,6 +179,21 @@ You can then run Talia with `--whois` against this file to verify the suggested 
 **If the API key is missing or the OpenAI request fails,** Talia will print an error and exit without writing suggestions.
 
 **Tip:** You can add new suggestions to an existing grouped file by appending to the `"unverified"` array, then re-running Talia to check them.
+
+### Cleaning Domain Files
+
+Use `--clean` to sanitize an existing domain file. This normalizes all domains, removes invalid entries, and deduplicates:
+
+    ./talia --clean suggestions.json
+
+The clean operation:
+- Converts domains to lowercase
+- Fixes repeated `.com` suffixes (e.g., `example.com.com.com` → `example.com`)
+- Removes double dots (e.g., `example..com` → `example.com`)
+- Removes domains that don't match the `name.com` format
+- Removes duplicates
+
+Invalid domains are listed in the output so you can see what was removed.
 
 ### Verbose Mode
 
@@ -282,6 +299,8 @@ Talia's test suite covers:
 - **`--prompt=<text>`**: Optional text to influence domain suggestion themes
 - **`--model=<name>`**: Model to use when generating suggestions (default: gpt-4o)
 - **`--api-base=<url>`**: Base URL for OpenAI-compatible API (default: https://api.openai.com/v1). Can also be set via `OPENAI_API_BASE` environment variable.
+- **`--fresh`**: Don't pass existing domains to AI when generating suggestions (allows duplicates, starts fresh)
+- **`--clean`**: Clean and normalize domains in the file (removes invalid domains, fixes malformed entries)
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains
 
 ---
