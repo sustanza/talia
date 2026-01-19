@@ -148,13 +148,16 @@ OPENAI_API_KEY=your-api-key
 OPENAI_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
 ```
 
-Use the `--suggest` flag to create a JSON file containing domain ideas without running any WHOIS checks. The result is written in the same grouped format with an `"unverified"` array so you can immediately feed it back into Talia for checking. You can change the model with `--model`.
+Use the `--suggest` flag to generate domain ideas. If you also provide `--whois`, Talia will automatically verify the suggestions via WHOIS (with a fast 100ms delay between checks). Use `--no-verify` to skip auto-verification and just write suggestions. You can change the model with `--model`.
 
-    # OpenAI
-    OPENAI_API_KEY=... ./talia --suggest=5 --prompt="three word tech names ending in .com" --model=gpt-5-mini suggestions.json
+    # Generate and auto-verify suggestions
+    OPENAI_API_KEY=... ./talia --suggest=5 --whois=whois.verisign-grs.com:43 --prompt="three word tech names" suggestions.json
 
-    # Google Gemini
-    OPENAI_API_KEY=... ./talia --suggest=5 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-3.0-flash --prompt="short brandable names" suggestions.json
+    # Generate suggestions only (no verification)
+    OPENAI_API_KEY=... ./talia --suggest=5 --no-verify --prompt="short brandable names" suggestions.json
+
+    # Use Google Gemini
+    OPENAI_API_KEY=... ./talia --suggest=5 --whois=whois.verisign-grs.com:43 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-3.0-flash suggestions.json
 
 **Important:** Talia will instruct the AI to only return domain names ending in `.com`. Talia automatically validates and normalizes all suggestions, fixing common issues like repeated `.com` suffixes (e.g., `example.com.com.com`) and double dots. Domains that can't be normalized to valid `name.com` format are silently discarded.
 
@@ -171,10 +174,6 @@ Use the `--suggest` flag to create a JSON file containing domain ideas without r
   ]
 }
 ```
-
-You can then run Talia with `--whois` against this file to verify the suggested domains:
-
-    ./talia --whois=whois.example.com:43 suggestions.json
 
 **If the API key is missing or the OpenAI request fails,** Talia will print an error and exit without writing suggestions.
 
@@ -300,6 +299,7 @@ Talia's test suite covers:
 - **`--model=<name>`**: Model to use when generating suggestions (default: gpt-4o)
 - **`--api-base=<url>`**: Base URL for OpenAI-compatible API (default: https://api.openai.com/v1). Can also be set via `OPENAI_API_BASE` environment variable.
 - **`--fresh`**: Don't pass existing domains to AI when generating suggestions (allows duplicates, starts fresh)
+- **`--no-verify`**: Skip WHOIS verification after generating suggestions (by default, suggestions are verified if `--whois` is provided)
 - **`--clean`**: Clean and normalize domains in the file (removes invalid domains, fixes malformed entries)
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains
 

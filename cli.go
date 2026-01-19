@@ -205,6 +205,7 @@ func RunCLI(args []string) int {
 	apiBase := fs.String("api-base", "", "Base URL for OpenAI-compatible API (default: https://api.openai.com/v1)")
 	fresh := fs.Bool("fresh", false, "Don't pass existing domains to AI (allows duplicates, starts fresh)")
 	clean := fs.Bool("clean", false, "Clean and normalize domains in the file (removes invalid domains)")
+	noVerify := fs.Bool("no-verify", false, "Skip WHOIS verification after generating suggestions")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
@@ -256,6 +257,25 @@ func RunCLI(args []string) int {
 			return 1
 		}
 		fmt.Println("Wrote domain suggestions to", fs.Arg(0))
+
+		// Auto-verify suggestions if --whois is provided and --no-verify is not set
+		if *whoisServer != "" && !*noVerify {
+			fmt.Println("Verifying suggestions...")
+			inputPath := fs.Arg(0)
+			raw, err := os.ReadFile(inputPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
+				return 1
+			}
+			var ext ExtendedGroupedData
+			if err := json.Unmarshal(raw, &ext); err != nil {
+				fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", inputPath, err)
+				return 1
+			}
+			// Use 100ms sleep for auto-verification
+			verifySleep := 100 * time.Millisecond
+			return RunCLIGroupedInput(*whoisServer, inputPath, ext, verifySleep, *verbose, true, "")
+		}
 		return 0
 	}
 
