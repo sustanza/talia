@@ -150,6 +150,8 @@ OPENAI_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
 WHOIS_SERVER=whois.verisign-grs.com:43
 TALIA_PROMPT=short brandable startup names
 TALIA_SUGGEST=10
+TALIA_MODEL=gemini-2.5-flash
+TALIA_FILE=suggestions.json
 ```
 
 Use the `--suggest` flag to generate domain ideas. If you also provide `--whois`, Talia will automatically verify the suggestions via WHOIS (with a fast 100ms delay between checks). Use `--no-verify` to skip auto-verification and just write suggestions. You can change the model with `--model`.
@@ -308,13 +310,13 @@ Talia's test suite covers:
 - **`--output-file=<path>`**: If provided, Talia merges/writes grouped JSON to this file and leaves the input alone
 - **`--suggest=<n>`**: Generate <n> domain suggestions (can also be set via `TALIA_SUGGEST` env var)
 - **`--prompt=<text>`**: Text to influence domain suggestion themes (can also be set via `TALIA_PROMPT` env var)
-- **`--model=<name>`**: Model to use when generating suggestions (default: gpt-4o)
+- **`--model=<name>`**: Model to use when generating suggestions (default: gpt-4o; can also be set via `TALIA_MODEL` env var)
 - **`--api-base=<url>`**: Base URL for OpenAI-compatible API (default: https://api.openai.com/v1). Can also be set via `OPENAI_API_BASE` environment variable.
 - **`--fresh`**: Don't pass existing domains to AI when generating suggestions (allows duplicates, starts fresh)
 - **`--no-verify`**: Skip WHOIS verification after generating suggestions (by default, suggestions are verified if `--whois` is provided)
 - **`--merge=<file>`**: Merge domains from another file into the target file
 - **`--clean`**: Clean and normalize domains in the file (removes invalid domains, fixes malformed entries)
-- **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains
+- **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains (can also be set via `TALIA_FILE` env var)
 
 ---
 

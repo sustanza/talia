@@ -214,12 +214,19 @@ func RunCLI(args []string) int {
 		return 1
 	}
 
-	if fs.NArg() < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: %s --whois=<server:port> [--sleep=2s] [--verbose] [--grouped-output] [--output-file=path] <json-file>\n", fs.Name())
+	// Get target file from args or env var
+	targetFile := ""
+	if fs.NArg() >= 1 {
+		targetFile = fs.Arg(0)
+	} else if envFile := os.Getenv("TALIA_FILE"); envFile != "" {
+		targetFile = envFile
+	}
+	if targetFile == "" {
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] <json-file> (or set TALIA_FILE env var)\n", fs.Name())
 		return 1
 	}
 	if *clean {
-		removed, err := cleanSuggestionsFile(fs.Arg(0))
+		removed, err := cleanSuggestionsFile(targetFile)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error cleaning file:", err)
 			return 1
@@ -232,17 +239,17 @@ func RunCLI(args []string) int {
 		} else {
 			fmt.Println("No invalid domains found.")
 		}
-		fmt.Println("Cleaned", fs.Arg(0))
+		fmt.Println("Cleaned", targetFile)
 		return 0
 	}
 
 	if *merge != "" {
-		added, err := mergeFiles(fs.Arg(0), *merge)
+		added, err := mergeFiles(targetFile, *merge)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error merging files:", err)
 			return 1
 		}
-		fmt.Printf("Merged %d new domains from %s into %s\n", added, *merge, fs.Arg(0))
+		fmt.Printf("Merged %d new domains from %s into %s\n", added, *merge, targetFile)
 		return 0
 	}
 
@@ -269,21 +276,28 @@ func RunCLI(args []string) int {
 		if promptText == "" {
 			promptText = os.Getenv("TALIA_PROMPT")
 		}
+		// Use env var if --model not provided (and not default)
+		modelName := *model
+		if modelName == defaultOpenAIModel {
+			if envModel := os.Getenv("TALIA_MODEL"); envModel != "" {
+				modelName = envModel
+			}
+		}
 		// Read existing domains to avoid duplicates (unless --fresh is set)
 		var existingDomains []string
 		if !*fresh {
-			existingDomains = readExistingDomains(fs.Arg(0))
+			existingDomains = readExistingDomains(targetFile)
 		}
-		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), promptText, suggestCount, *model, baseURL, existingDomains)
+		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), promptText, suggestCount, modelName, baseURL, existingDomains)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
 			return 1
 		}
-		if err := writeSuggestionsFile(fs.Arg(0), list); err != nil {
+		if err := writeSuggestionsFile(targetFile, list); err != nil {
 			fmt.Fprintln(os.Stderr, "Error writing suggestions file:", err)
 			return 1
 		}
-		fmt.Println("Wrote domain suggestions to", fs.Arg(0))
+		fmt.Println("Wrote domain suggestions to", targetFile)
 
 		// Auto-verify suggestions if --whois is provided (or env var) and --no-verify is not set
 		whois := *whoisServer
@@ -292,7 +306,7 @@ func RunCLI(args []string) int {
 		}
 		if whois != "" && !*noVerify {
 			fmt.Println("Verifying suggestions...")
-			inputPath := fs.Arg(0)
+			inputPath := targetFile
 			raw, err := os.ReadFile(inputPath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
@@ -319,7 +333,7 @@ func RunCLI(args []string) int {
 		return 1
 	}
 
-	inputPath := fs.Arg(0)
+	inputPath := targetFile
 	raw, err := os.ReadFile(inputPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
