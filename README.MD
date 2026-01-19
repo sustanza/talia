@@ -136,9 +136,15 @@ As shown above, `--sleep` changes how long Talia waits between domain checks.
 
 Talia can use AI (OpenAI, Gemini, or other OpenAI-compatible APIs) to generate domain name ideas. This feature requires an API key and internet access.
 
-- **API Key Requirement:** Set the `OPENAI_API_KEY` environment variable with your API key.
+- **API Key Requirement:** Set the `OPENAI_API_KEY` environment variable with your API key, or add it to a `.env` file in the current directory (Talia loads `.env` automatically).
 - **Network Access:** The machine running Talia must be able to reach the API endpoint.
 - **Alternative APIs:** Use `--api-base` or the `OPENAI_API_BASE` environment variable to point to OpenAI-compatible APIs like Google Gemini.
+
+Example `.env` file:
+```
+OPENAI_API_KEY=your-api-key
+OPENAI_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
+```
 
 Use the `--suggest` flag to create a JSON file containing domain ideas without running any WHOIS checks. The result is written in the same grouped format with an `"unverified"` array so you can immediately feed it back into Talia for checking. You can change the model with `--model`.
 
