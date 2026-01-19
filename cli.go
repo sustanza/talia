@@ -269,8 +269,12 @@ func RunCLI(args []string) int {
 		}
 		fmt.Println("Wrote domain suggestions to", fs.Arg(0))
 
-		// Auto-verify suggestions if --whois is provided and --no-verify is not set
-		if *whoisServer != "" && !*noVerify {
+		// Auto-verify suggestions if --whois is provided (or env var) and --no-verify is not set
+		whois := *whoisServer
+		if whois == "" {
+			whois = os.Getenv("WHOIS_SERVER")
+		}
+		if whois != "" && !*noVerify {
 			fmt.Println("Verifying suggestions...")
 			inputPath := fs.Arg(0)
 			raw, err := os.ReadFile(inputPath)
@@ -285,13 +289,17 @@ func RunCLI(args []string) int {
 			}
 			// Use 100ms sleep for auto-verification
 			verifySleep := 100 * time.Millisecond
-			return RunCLIGroupedInput(*whoisServer, inputPath, ext, verifySleep, *verbose, true, "")
+			return RunCLIGroupedInput(whois, inputPath, ext, verifySleep, *verbose, true, "")
 		}
 		return 0
 	}
 
+	// Use env var if --whois not provided
 	if *whoisServer == "" {
-		fmt.Fprintln(os.Stderr, "Error: --whois=<server:port> is required")
+		*whoisServer = os.Getenv("WHOIS_SERVER")
+	}
+	if *whoisServer == "" {
+		fmt.Fprintln(os.Stderr, "Error: --whois=<server:port> is required (or set WHOIS_SERVER env var)")
 		return 1
 	}
 

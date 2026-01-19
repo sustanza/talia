@@ -147,6 +147,7 @@ Example `.env` file:
 ```
 OPENAI_API_KEY=your-api-key
 OPENAI_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
+WHOIS_SERVER=whois.verisign-grs.com:43
 ```
 
 Use the `--suggest` flag to generate domain ideas. If you also provide `--whois`, Talia will automatically verify the suggestions via WHOIS (with a fast 100ms delay between checks). Use `--no-verify` to skip auto-verification and just write suggestions. You can change the model with `--model`.
@@ -298,7 +299,7 @@ Talia's test suite covers:
 
 ## Configuration
 
-- **`--whois=<host:port>`**: Required WHOIS server
+- **`--whois=<host:port>`**: WHOIS server (required for checks; can also be set via `WHOIS_SERVER` env var)
 - **`--sleep=<duration>`**: Wait time between queries (default 2s)
 - **`--verbose`**: Store WHOIS data in `"log"` even for successful checks
 - **`--grouped-output`**: Switch to grouped output
