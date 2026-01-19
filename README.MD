@@ -17,6 +17,7 @@ Talia is a lightweight command-line application for checking the availability of
   - [Domain Checks and Rate Limiting](#domain-checks-and-rate-limiting)
   - [Optional Sleep Flag](#optional-sleep-flag)
   - [Generating Domain Suggestions](#generating-domain-suggestions)
+  - [Merging Domain Files](#merging-domain-files)
   - [Cleaning Domain Files](#cleaning-domain-files)
   - [Verbose Mode](#verbose-mode)
   - [Grouped Output](#grouped-output)
@@ -179,6 +180,14 @@ Use the `--suggest` flag to generate domain ideas. If you also provide `--whois`
 
 **Tip:** You can add new suggestions to an existing grouped file by appending to the `"unverified"` array, then re-running Talia to check them.
 
+### Merging Domain Files
+
+Use `--merge` to combine domains from one file into another:
+
+    ./talia --merge=source.json target.json
+
+This merges all domains from `source.json` into `target.json`, preserving their categories (available, unavailable, unverified). Duplicates are automatically skipped.
+
 ### Cleaning Domain Files
 
 Use `--clean` to sanitize an existing domain file. This normalizes all domains, removes invalid entries, and deduplicates:
@@ -300,6 +309,7 @@ Talia's test suite covers:
 - **`--api-base=<url>`**: Base URL for OpenAI-compatible API (default: https://api.openai.com/v1). Can also be set via `OPENAI_API_BASE` environment variable.
 - **`--fresh`**: Don't pass existing domains to AI when generating suggestions (allows duplicates, starts fresh)
 - **`--no-verify`**: Skip WHOIS verification after generating suggestions (by default, suggestions are verified if `--whois` is provided)
+- **`--merge=<file>`**: Merge domains from another file into the target file
 - **`--clean`**: Clean and normalize domains in the file (removes invalid domains, fixes malformed entries)
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains
 

@@ -206,6 +206,7 @@ func RunCLI(args []string) int {
 	fresh := fs.Bool("fresh", false, "Don't pass existing domains to AI (allows duplicates, starts fresh)")
 	clean := fs.Bool("clean", false, "Clean and normalize domains in the file (removes invalid domains)")
 	noVerify := fs.Bool("no-verify", false, "Skip WHOIS verification after generating suggestions")
+	merge := fs.String("merge", "", "Merge domains from another file into the target file")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
@@ -231,6 +232,16 @@ func RunCLI(args []string) int {
 			fmt.Println("No invalid domains found.")
 		}
 		fmt.Println("Cleaned", fs.Arg(0))
+		return 0
+	}
+
+	if *merge != "" {
+		added, err := mergeFiles(fs.Arg(0), *merge)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error merging files:", err)
+			return 1
+		}
+		fmt.Printf("Merged %d new domains from %s into %s\n", added, *merge, fs.Arg(0))
 		return 0
 	}
 

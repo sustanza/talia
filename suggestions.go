@@ -297,6 +297,85 @@ func cleanSuggestionsFile(path string) (removed []string, err error) {
 	return removed, os.WriteFile(path, out, 0644)
 }
 
+// mergeFiles merges domains from sourceFile into targetFile, deduplicating.
+// Returns the number of new domains added.
+func mergeFiles(targetFile, sourceFile string) (int, error) {
+	// Read target file
+	var target ExtendedGroupedData
+	if raw, err := os.ReadFile(targetFile); err == nil {
+		_ = json.Unmarshal(raw, &target)
+	}
+
+	// Read source file
+	rawSource, err := os.ReadFile(sourceFile)
+	if err != nil {
+		return 0, fmt.Errorf("reading source file: %w", err)
+	}
+	var source ExtendedGroupedData
+	if err := json.Unmarshal(rawSource, &source); err != nil {
+		return 0, fmt.Errorf("parsing source file: %w", err)
+	}
+
+	// Build set of existing domains in target
+	seen := make(map[string]bool)
+	for _, d := range target.Available {
+		seen[strings.ToLower(d.Domain)] = true
+	}
+	for _, d := range target.Unavailable {
+		seen[strings.ToLower(d.Domain)] = true
+	}
+	for _, d := range target.Unverified {
+		seen[strings.ToLower(d.Domain)] = true
+	}
+
+	added := 0
+
+	// Merge available from source
+	for _, d := range source.Available {
+		domain := normalizeDomain(d.Domain)
+		if domain == "" {
+			continue
+		}
+		if !seen[domain] {
+			seen[domain] = true
+			target.Available = append(target.Available, GroupedDomain{Domain: domain, Reason: d.Reason, Log: d.Log})
+			added++
+		}
+	}
+
+	// Merge unavailable from source
+	for _, d := range source.Unavailable {
+		domain := normalizeDomain(d.Domain)
+		if domain == "" {
+			continue
+		}
+		if !seen[domain] {
+			seen[domain] = true
+			target.Unavailable = append(target.Unavailable, GroupedDomain{Domain: domain, Reason: d.Reason, Log: d.Log})
+			added++
+		}
+	}
+
+	// Merge unverified from source
+	for _, d := range source.Unverified {
+		domain := normalizeDomain(d.Domain)
+		if domain == "" {
+			continue
+		}
+		if !seen[domain] {
+			seen[domain] = true
+			target.Unverified = append(target.Unverified, DomainRecord{Domain: domain})
+			added++
+		}
+	}
+
+	out, err := json.MarshalIndent(target, "", "  ")
+	if err != nil {
+		return added, err
+	}
+	return added, os.WriteFile(targetFile, out, 0644)
+}
+
 // readExistingDomains reads all domains from an existing suggestions file
 // for use in avoiding duplicates when generating new suggestions.
 func readExistingDomains(path string) []string {
