@@ -41,9 +41,8 @@ var (
 // GenerateDomainSuggestions contacts the OpenAI API using structured output
 // to get domain suggestions. The returned list can be used as the
 // "unverified" field in an ExtendedGroupedData file.
-func GenerateDomainSuggestions(apiKey, prompt string, count int, model string) ([]DomainRecord, error) {
+func GenerateDomainSuggestions(apiKey, prompt string, count int, model, baseURL string) ([]DomainRecord, error) {
 	client := httpDoer(http.DefaultClient)
-	baseURL := defaultOpenAIBase
 	if testHTTPClient != nil {
 		client = testHTTPClient
 	}
@@ -62,27 +61,30 @@ func generateSuggestions(apiKey, prompt string, count int, model string, client 
 
 	ctx := context.Background()
 
-	// Define the function schema for OpenAI function calling
-	functions := []map[string]any{
+	// Define the tool schema for OpenAI tool calling (modern API format)
+	tools := []map[string]any{
 		{
-			"name":        functionName,
-			"description": functionDesc,
-			"parameters": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"unverified": map[string]any{
-						"type": "array",
-						"items": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"domain": map[string]any{"type": "string"},
+			"type": "function",
+			"function": map[string]any{
+				"name":        functionName,
+				"description": functionDesc,
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"unverified": map[string]any{
+							"type": "array",
+							"items": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"domain": map[string]any{"type": "string"},
+								},
+								"required": []string{"domain"},
 							},
-							"required": []string{"domain"},
 						},
 					},
+					"required":             []string{"unverified"},
+					"additionalProperties": false,
 				},
-				"required":             []string{"unverified"},
-				"additionalProperties": false,
 			},
 		},
 	}
@@ -93,8 +95,11 @@ func generateSuggestions(apiKey, prompt string, count int, model string, client 
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": fmt.Sprintf(userPromptTemplate, prompt, count)},
 		},
-		"functions":     functions,
-		"function_call": map[string]string{"name": functionName},
+		"tools": tools,
+		"tool_choice": map[string]any{
+			"type":     "function",
+			"function": map[string]string{"name": functionName},
+		},
 	}
 
 	payload, err := json.Marshal(body)
@@ -123,10 +128,12 @@ func generateSuggestions(apiKey, prompt string, count int, model string, client 
 	var openaiResp struct {
 		Choices []struct {
 			Message struct {
-				FunctionCall struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				} `json:"function_call"`
+				ToolCalls []struct {
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
@@ -136,9 +143,12 @@ func generateSuggestions(apiKey, prompt string, count int, model string, client 
 	if len(openaiResp.Choices) == 0 {
 		return nil, fmt.Errorf("no choices returned")
 	}
+	if len(openaiResp.Choices[0].Message.ToolCalls) == 0 {
+		return nil, fmt.Errorf("no tool calls returned")
+	}
 
 	var out suggestionSchema
-	if err := json.Unmarshal([]byte(openaiResp.Choices[0].Message.FunctionCall.Arguments), &out); err != nil {
+	if err := json.Unmarshal([]byte(openaiResp.Choices[0].Message.ToolCalls[0].Function.Arguments), &out); err != nil {
 		return nil, fmt.Errorf("unmarshal structured output: %w", err)
 	}
 	return out.Unverified, nil

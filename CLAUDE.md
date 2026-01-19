@@ -29,7 +29,7 @@ Talia is a CLI tool for checking domain availability via WHOIS servers and gener
 - **whois.go** - WHOIS client using TCP sockets. `WhoisClient` interface enables testing with mock implementations. Availability detected by "No match for" substring
 - **types.go** - Data structures: `DomainRecord` (array format), `GroupedDomain`/`GroupedData`/`ExtendedGroupedData` (grouped format)
 - **grouped.go** - JSON merge logic for grouped output format with deduplication
-- **suggestions.go** - OpenAI API integration using structured output for domain generation (requires `OPENAI_API_KEY`)
+- **suggestions.go** - OpenAI-compatible API integration using structured output for domain generation. Supports OpenAI, Gemini, and other compatible APIs via `--api-base` flag or `OPENAI_API_BASE` env var (requires `OPENAI_API_KEY`)
 
 **cmd/talia/main.go** - Thin wrapper that calls `talia.RunCLI()`
 

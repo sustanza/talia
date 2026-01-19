@@ -27,7 +27,7 @@ func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"a.com\"}]}"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"a.com\"}]}"}}]}}]}`)
 	}))
 	defer srv.Close()
 
@@ -59,7 +59,7 @@ func TestRunCLISuggest(t *testing.T) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"b.com\"}]}"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"b.com\"}]}"}}]}}]}`)
 	}))
 	defer srv.Close()
 
@@ -127,7 +127,7 @@ func TestRunCLISuggestModelFlag(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"c.com\"}]}"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"c.com\"}]}"}}]}}]}`)
 	}))
 	defer srv.Close()
 
@@ -216,11 +216,24 @@ func TestGenerateDomainSuggestionsNoChoices(t *testing.T) {
 	}
 }
 
+func TestGenerateDomainSuggestionsNoToolCalls(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[]}}]}`)
+	}))
+	defer srv.Close()
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "no tool calls") {
+		t.Fatalf("expected no tool calls error, got %v", err)
+	}
+}
+
 func TestGenerateDomainSuggestionsUnmarshalError(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"not-json"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"not-json"}}]}}]}`)
 	}))
 	defer srv.Close()
 	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL)
