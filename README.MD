@@ -146,7 +146,7 @@ Use the `--suggest` flag to create a JSON file containing domain ideas without r
     OPENAI_API_KEY=... ./talia --suggest=5 --prompt="three word tech names ending in .com" --model=gpt-5-mini suggestions.json
 
     # Google Gemini
-    OPENAI_API_KEY=... ./talia --suggest=5 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-2.0-flash --prompt="short brandable names" suggestions.json
+    OPENAI_API_KEY=... ./talia --suggest=5 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-3.0-flash --prompt="short brandable names" suggestions.json
 
 **Important:** Talia will instruct the AI to only return domain names ending in `.com`. If the AI still returns domains without `.com`, Talia will not automatically fix them. You may need to adjust your prompt or manually add `.com` to the results. This will become more flexible for other TLDs in the future.
 
