@@ -212,7 +212,9 @@ func RunCLI(args []string) int {
 	fresh := fs.Bool("fresh", false, "Don't pass existing domains to AI (allows duplicates, starts fresh)")
 	clean := fs.Bool("clean", false, "Clean and normalize domains in the file (removes invalid domains)")
 	noVerify := fs.Bool("no-verify", false, "Skip WHOIS verification after generating suggestions")
-	merge := fs.String("merge", "", "Merge domains from another file into the target file")
+	merge := fs.Bool("merge", false, "Merge multiple domain files")
+	output := fs.String("o", "", "Output file for merge (if not set, merges into first file)")
+	exportAvailable := fs.String("export-available", "", "Export available domains to a text file")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
@@ -248,13 +250,40 @@ func RunCLI(args []string) int {
 		return 0
 	}
 
-	if *merge != "" {
-		added, err := mergeFiles(targetFile, *merge)
+	if *merge {
+		// In merge mode, all positional args are input files
+		inputFiles := fs.Args()
+		if len(inputFiles) < 1 {
+			fmt.Fprintln(os.Stderr, "Error: --merge requires at least one input file")
+			return 1
+		}
+		if len(inputFiles) < 2 && *output == "" {
+			fmt.Fprintln(os.Stderr, "Error: --merge requires at least 2 files, or use -o to specify output")
+			return 1
+		}
+
+		outputFile := *output
+		if outputFile == "" {
+			// Merge all into first file
+			outputFile = inputFiles[0]
+		}
+
+		added, err := mergeFiles(outputFile, inputFiles)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error merging files:", err)
 			return 1
 		}
-		fmt.Printf("Merged %d new domains from %s into %s\n", added, *merge, targetFile)
+		fmt.Printf("Merged %d domains into %s\n", added, outputFile)
+		return 0
+	}
+
+	if *exportAvailable != "" {
+		added, err := exportAvailableDomains(targetFile, *exportAvailable)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error exporting available domains:", err)
+			return 1
+		}
+		fmt.Printf("Exported %d available domains to %s\n", added, *exportAvailable)
 		return 0
 	}
 

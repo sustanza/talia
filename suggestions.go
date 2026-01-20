@@ -297,83 +297,96 @@ func cleanSuggestionsFile(path string) (removed []string, err error) {
 	return removed, os.WriteFile(path, out, 0644)
 }
 
-// mergeFiles merges domains from sourceFile into targetFile, deduplicating.
-// Returns the number of new domains added.
-func mergeFiles(targetFile, sourceFile string) (int, error) {
-	// Read target file
-	var target ExtendedGroupedData
-	if raw, err := os.ReadFile(targetFile); err == nil {
-		_ = json.Unmarshal(raw, &target)
-	}
-
-	// Read source file
-	rawSource, err := os.ReadFile(sourceFile)
-	if err != nil {
-		return 0, fmt.Errorf("reading source file: %w", err)
-	}
-	var source ExtendedGroupedData
-	if err := json.Unmarshal(rawSource, &source); err != nil {
-		return 0, fmt.Errorf("parsing source file: %w", err)
-	}
-
-	// Build set of existing domains in target
+// mergeFiles merges domains from multiple input files into outputFile, deduplicating.
+// Returns the total number of unique domains in the merged result.
+func mergeFiles(outputFile string, inputFiles []string) (int, error) {
+	var merged ExtendedGroupedData
 	seen := make(map[string]bool)
-	for _, d := range target.Available {
-		seen[strings.ToLower(d.Domain)] = true
-	}
-	for _, d := range target.Unavailable {
-		seen[strings.ToLower(d.Domain)] = true
-	}
-	for _, d := range target.Unverified {
-		seen[strings.ToLower(d.Domain)] = true
-	}
 
-	added := 0
-
-	// Merge available from source
-	for _, d := range source.Available {
-		domain := normalizeDomain(d.Domain)
-		if domain == "" {
-			continue
+	// Helper to add domains from a source to the merged result
+	mergeSource := func(source ExtendedGroupedData) {
+		for _, d := range source.Available {
+			domain := normalizeDomain(d.Domain)
+			if domain == "" {
+				continue
+			}
+			if !seen[domain] {
+				seen[domain] = true
+				merged.Available = append(merged.Available, GroupedDomain{Domain: domain, Reason: d.Reason, Log: d.Log})
+			}
 		}
-		if !seen[domain] {
-			seen[domain] = true
-			target.Available = append(target.Available, GroupedDomain{Domain: domain, Reason: d.Reason, Log: d.Log})
-			added++
+		for _, d := range source.Unavailable {
+			domain := normalizeDomain(d.Domain)
+			if domain == "" {
+				continue
+			}
+			if !seen[domain] {
+				seen[domain] = true
+				merged.Unavailable = append(merged.Unavailable, GroupedDomain{Domain: domain, Reason: d.Reason, Log: d.Log})
+			}
 		}
-	}
-
-	// Merge unavailable from source
-	for _, d := range source.Unavailable {
-		domain := normalizeDomain(d.Domain)
-		if domain == "" {
-			continue
-		}
-		if !seen[domain] {
-			seen[domain] = true
-			target.Unavailable = append(target.Unavailable, GroupedDomain{Domain: domain, Reason: d.Reason, Log: d.Log})
-			added++
+		for _, d := range source.Unverified {
+			domain := normalizeDomain(d.Domain)
+			if domain == "" {
+				continue
+			}
+			if !seen[domain] {
+				seen[domain] = true
+				merged.Unverified = append(merged.Unverified, DomainRecord{Domain: domain})
+			}
 		}
 	}
 
-	// Merge unverified from source
-	for _, d := range source.Unverified {
-		domain := normalizeDomain(d.Domain)
-		if domain == "" {
-			continue
+	// Read and merge all input files
+	for _, inputFile := range inputFiles {
+		raw, err := os.ReadFile(inputFile)
+		if err != nil {
+			return 0, fmt.Errorf("reading %s: %w", inputFile, err)
 		}
-		if !seen[domain] {
-			seen[domain] = true
-			target.Unverified = append(target.Unverified, DomainRecord{Domain: domain})
-			added++
+		var source ExtendedGroupedData
+		if err := json.Unmarshal(raw, &source); err != nil {
+			return 0, fmt.Errorf("parsing %s: %w", inputFile, err)
 		}
+		mergeSource(source)
 	}
 
-	out, err := json.MarshalIndent(target, "", "  ")
+	totalDomains := len(merged.Available) + len(merged.Unavailable) + len(merged.Unverified)
+
+	out, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
-		return added, err
+		return totalDomains, err
 	}
-	return added, os.WriteFile(targetFile, out, 0644)
+	return totalDomains, os.WriteFile(outputFile, out, 0644)
+}
+
+// exportAvailableDomains reads an input file and exports all available domains
+// to a plain text file (one domain per line). Returns the number of domains exported.
+func exportAvailableDomains(inputFile, outputFile string) (int, error) {
+	raw, err := os.ReadFile(inputFile)
+	if err != nil {
+		return 0, fmt.Errorf("reading %s: %w", inputFile, err)
+	}
+
+	var data ExtendedGroupedData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return 0, fmt.Errorf("parsing %s: %w", inputFile, err)
+	}
+
+	var lines []string
+	for _, d := range data.Available {
+		lines = append(lines, d.Domain)
+	}
+
+	content := strings.Join(lines, "\n")
+	if len(lines) > 0 {
+		content += "\n"
+	}
+
+	if err := os.WriteFile(outputFile, []byte(content), 0644); err != nil {
+		return 0, fmt.Errorf("writing %s: %w", outputFile, err)
+	}
+
+	return len(lines), nil
 }
 
 // readExistingDomains reads all domains from an existing suggestions file
