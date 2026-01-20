@@ -1764,3 +1764,563 @@ func TestWriteGroupedFile_ReadError(t *testing.T) {
 		t.Fatalf("expected read error, got %v", err)
 	}
 }
+
+// TestCheckDomainsParallel tests parallel domain checking
+func TestCheckDomainsParallel(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+
+	// Handle multiple connections
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				_, _ = io.Copy(io.Discard, c)
+				_, _ = io.WriteString(c, "No match for domain")
+				helperClose(nil, c, "conn")
+			}(conn)
+		}
+	}()
+
+	domains := []string{"a.com", "b.com", "c.com"}
+	stdout, _ := captureOutput(t, func() {
+		results := checkDomainsParallel(domains, ln.Addr().String(), false, 3)
+		if len(results) != 3 {
+			t.Errorf("expected 3 results, got %d", len(results))
+		}
+		for _, r := range results {
+			if !r.Avail {
+				t.Errorf("expected %s to be available", r.Domain)
+			}
+		}
+	})
+	// Check progress output contains all domains
+	for _, d := range domains {
+		if !strings.Contains(stdout, d) {
+			t.Errorf("output missing domain %s", d)
+		}
+	}
+}
+
+// TestCheckDomainsParallel_LimitedWorkers tests with fewer workers than domains
+func TestCheckDomainsParallel_LimitedWorkers(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				_, _ = io.Copy(io.Discard, c)
+				_, _ = io.WriteString(c, "No match for domain")
+				helperClose(nil, c, "conn")
+			}(conn)
+		}
+	}()
+
+	domains := []string{"a.com", "b.com", "c.com", "d.com", "e.com"}
+	_, _ = captureOutput(t, func() {
+		results := checkDomainsParallel(domains, ln.Addr().String(), false, 2)
+		if len(results) != 5 {
+			t.Errorf("expected 5 results, got %d", len(results))
+		}
+	})
+}
+
+// TestCheckDomainsParallel_MaxWorkers tests with -1 (max) workers
+func TestCheckDomainsParallel_MaxWorkers(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				_, _ = io.Copy(io.Discard, c)
+				_, _ = io.WriteString(c, "No match for domain")
+				helperClose(nil, c, "conn")
+			}(conn)
+		}
+	}()
+
+	domains := []string{"a.com", "b.com"}
+	_, _ = captureOutput(t, func() {
+		results := checkDomainsParallel(domains, ln.Addr().String(), false, -1)
+		if len(results) != 2 {
+			t.Errorf("expected 2 results, got %d", len(results))
+		}
+	})
+}
+
+// TestMergeFiles tests merging multiple files
+func TestMergeFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create source files
+	file1 := filepath.Join(dir, "file1.json")
+	file2 := filepath.Join(dir, "file2.json")
+	output := filepath.Join(dir, "output.json")
+
+	data1 := ExtendedGroupedData{
+		Available:   []GroupedDomain{{Domain: "a.com"}},
+		Unavailable: []GroupedDomain{{Domain: "b.com"}},
+	}
+	data2 := ExtendedGroupedData{
+		Available:   []GroupedDomain{{Domain: "c.com"}},
+		Unverified:  []DomainRecord{{Domain: "d.com"}},
+	}
+
+	b1, _ := json.Marshal(data1)
+	b2, _ := json.Marshal(data2)
+	_ = os.WriteFile(file1, b1, 0644)
+	_ = os.WriteFile(file2, b2, 0644)
+
+	count, err := mergeFiles(output, []string{file1, file2})
+	if err != nil {
+		t.Fatalf("mergeFiles error: %v", err)
+	}
+	if count != 4 {
+		t.Errorf("expected 4 domains, got %d", count)
+	}
+
+	// Verify output
+	raw, _ := os.ReadFile(output)
+	var result ExtendedGroupedData
+	_ = json.Unmarshal(raw, &result)
+
+	if len(result.Available) != 2 {
+		t.Errorf("expected 2 available, got %d", len(result.Available))
+	}
+	if len(result.Unavailable) != 1 {
+		t.Errorf("expected 1 unavailable, got %d", len(result.Unavailable))
+	}
+	if len(result.Unverified) != 1 {
+		t.Errorf("expected 1 unverified, got %d", len(result.Unverified))
+	}
+}
+
+// TestMergeFiles_Deduplication tests that duplicates are removed
+func TestMergeFiles_Deduplication(t *testing.T) {
+	dir := t.TempDir()
+
+	file1 := filepath.Join(dir, "file1.json")
+	file2 := filepath.Join(dir, "file2.json")
+	output := filepath.Join(dir, "output.json")
+
+	data1 := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "a.com"}}}
+	data2 := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "a.com"}, {Domain: "b.com"}}}
+
+	b1, _ := json.Marshal(data1)
+	b2, _ := json.Marshal(data2)
+	_ = os.WriteFile(file1, b1, 0644)
+	_ = os.WriteFile(file2, b2, 0644)
+
+	count, err := mergeFiles(output, []string{file1, file2})
+	if err != nil {
+		t.Fatalf("mergeFiles error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 unique domains, got %d", count)
+	}
+}
+
+// TestMergeFiles_ReadError tests error handling for missing file
+func TestMergeFiles_ReadError(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "output.json")
+
+	_, err := mergeFiles(output, []string{"/nonexistent/file.json"})
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+// TestMergeFiles_ParseError tests error handling for invalid JSON
+func TestMergeFiles_ParseError(t *testing.T) {
+	dir := t.TempDir()
+	badFile := filepath.Join(dir, "bad.json")
+	output := filepath.Join(dir, "output.json")
+
+	_ = os.WriteFile(badFile, []byte("not json"), 0644)
+
+	_, err := mergeFiles(output, []string{badFile})
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+// TestExportAvailableDomains tests exporting available domains
+func TestExportAvailableDomains(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "input.json")
+	output := filepath.Join(dir, "output.txt")
+
+	data := ExtendedGroupedData{
+		Available:   []GroupedDomain{{Domain: "a.com"}, {Domain: "b.com"}, {Domain: "c.com"}},
+		Unavailable: []GroupedDomain{{Domain: "taken.com"}},
+	}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(input, b, 0644)
+
+	count, err := exportAvailableDomains(input, output)
+	if err != nil {
+		t.Fatalf("exportAvailableDomains error: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("expected 3 domains exported, got %d", count)
+	}
+
+	// Verify output
+	raw, _ := os.ReadFile(output)
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 3 {
+		t.Errorf("expected 3 lines, got %d", len(lines))
+	}
+	expected := map[string]bool{"a.com": true, "b.com": true, "c.com": true}
+	for _, line := range lines {
+		if !expected[line] {
+			t.Errorf("unexpected domain: %s", line)
+		}
+	}
+}
+
+// TestExportAvailableDomains_Empty tests exporting when no available domains
+func TestExportAvailableDomains_Empty(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "input.json")
+	output := filepath.Join(dir, "output.txt")
+
+	data := ExtendedGroupedData{Unavailable: []GroupedDomain{{Domain: "taken.com"}}}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(input, b, 0644)
+
+	count, err := exportAvailableDomains(input, output)
+	if err != nil {
+		t.Fatalf("exportAvailableDomains error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 domains, got %d", count)
+	}
+
+	raw, _ := os.ReadFile(output)
+	if string(raw) != "" {
+		t.Errorf("expected empty file, got %q", string(raw))
+	}
+}
+
+// TestExportAvailableDomains_ReadError tests error handling
+func TestExportAvailableDomains_ReadError(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "output.txt")
+
+	_, err := exportAvailableDomains("/nonexistent/file.json", output)
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+// TestExportAvailableDomains_ParseError tests error handling for invalid JSON
+func TestExportAvailableDomains_ParseError(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "input.json")
+	output := filepath.Join(dir, "output.txt")
+
+	_ = os.WriteFile(input, []byte("not json"), 0644)
+
+	_, err := exportAvailableDomains(input, output)
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+// TestExportAvailableDomains_WriteError tests error handling for write failure
+func TestExportAvailableDomains_WriteError(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "input.json")
+
+	data := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "a.com"}}}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(input, b, 0644)
+
+	_, err := exportAvailableDomains(input, "/nonexistent/dir/output.txt")
+	if err == nil {
+		t.Error("expected error for write failure")
+	}
+}
+
+// TestCleanSuggestionsFile tests cleaning domain files
+func TestCleanSuggestionsFile(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "domains.json")
+
+	data := ExtendedGroupedData{
+		Available:   []GroupedDomain{{Domain: "good.com"}, {Domain: "UPPERCASE.COM"}},
+		Unavailable: []GroupedDomain{{Domain: "also-good.com"}},
+		Unverified:  []DomainRecord{{Domain: "valid.com"}, {Domain: "invalid"}, {Domain: "double..com"}},
+	}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(file, b, 0644)
+
+	removed, err := cleanSuggestionsFile(file)
+	if err != nil {
+		t.Fatalf("cleanSuggestionsFile error: %v", err)
+	}
+
+	// "invalid" should be removed (no .com), "double..com" normalizes to "double.com"
+	if len(removed) != 1 || removed[0] != "invalid" {
+		t.Errorf("expected [invalid] removed, got %v", removed)
+	}
+
+	// Verify file was cleaned
+	raw, _ := os.ReadFile(file)
+	var result ExtendedGroupedData
+	_ = json.Unmarshal(raw, &result)
+
+	// Check domains are lowercase
+	for _, d := range result.Available {
+		if d.Domain != strings.ToLower(d.Domain) {
+			t.Errorf("expected lowercase, got %s", d.Domain)
+		}
+	}
+}
+
+// TestCleanSuggestionsFile_Deduplication tests that duplicates are removed
+func TestCleanSuggestionsFile_Deduplication(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "domains.json")
+
+	data := ExtendedGroupedData{
+		Available:  []GroupedDomain{{Domain: "a.com"}, {Domain: "A.COM"}},
+		Unverified: []DomainRecord{{Domain: "a.com"}},
+	}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(file, b, 0644)
+
+	_, err := cleanSuggestionsFile(file)
+	if err != nil {
+		t.Fatalf("cleanSuggestionsFile error: %v", err)
+	}
+
+	raw, _ := os.ReadFile(file)
+	var result ExtendedGroupedData
+	_ = json.Unmarshal(raw, &result)
+
+	total := len(result.Available) + len(result.Unavailable) + len(result.Unverified)
+	if total != 1 {
+		t.Errorf("expected 1 unique domain after dedup, got %d", total)
+	}
+}
+
+// TestCleanSuggestionsFile_ReadError tests error handling
+func TestCleanSuggestionsFile_ReadError(t *testing.T) {
+	_, err := cleanSuggestionsFile("/nonexistent/file.json")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+// TestCleanSuggestionsFile_ParseError tests error handling for invalid JSON
+func TestCleanSuggestionsFile_ParseError(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "bad.json")
+	_ = os.WriteFile(file, []byte("not json"), 0644)
+
+	_, err := cleanSuggestionsFile(file)
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+// TestRunCLI_MergeMultipleFiles tests the --merge flag with multiple files
+func TestRunCLI_MergeMultipleFiles(t *testing.T) {
+	dir := t.TempDir()
+	file1 := filepath.Join(dir, "file1.json")
+	file2 := filepath.Join(dir, "file2.json")
+	output := filepath.Join(dir, "output.json")
+
+	data1 := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "a.com"}}}
+	data2 := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "b.com"}}}
+	b1, _ := json.Marshal(data1)
+	b2, _ := json.Marshal(data2)
+	_ = os.WriteFile(file1, b1, 0644)
+	_ = os.WriteFile(file2, b2, 0644)
+
+	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
+	stdout, _ := captureOutput(t, func() {
+		code := RunCLI([]string{"--merge", "-o", output, file1, file2})
+		if code != 0 {
+			t.Errorf("expected exit 0, got %d", code)
+		}
+	})
+
+	if !strings.Contains(stdout, "Merged") {
+		t.Errorf("expected merge message, got %s", stdout)
+	}
+
+	raw, _ := os.ReadFile(output)
+	var result ExtendedGroupedData
+	_ = json.Unmarshal(raw, &result)
+	if len(result.Available) != 2 {
+		t.Errorf("expected 2 available domains, got %d", len(result.Available))
+	}
+}
+
+// TestRunCLI_MergeIntoFirst tests merging into first file when no -o
+func TestRunCLI_MergeIntoFirst(t *testing.T) {
+	dir := t.TempDir()
+	file1 := filepath.Join(dir, "file1.json")
+	file2 := filepath.Join(dir, "file2.json")
+
+	data1 := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "a.com"}}}
+	data2 := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "b.com"}}}
+	b1, _ := json.Marshal(data1)
+	b2, _ := json.Marshal(data2)
+	_ = os.WriteFile(file1, b1, 0644)
+	_ = os.WriteFile(file2, b2, 0644)
+
+	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
+	_, _ = captureOutput(t, func() {
+		code := RunCLI([]string{"--merge", file1, file2})
+		if code != 0 {
+			t.Errorf("expected exit 0, got %d", code)
+		}
+	})
+
+	raw, _ := os.ReadFile(file1)
+	var result ExtendedGroupedData
+	_ = json.Unmarshal(raw, &result)
+	if len(result.Available) != 2 {
+		t.Errorf("expected 2 available domains in file1, got %d", len(result.Available))
+	}
+}
+
+// TestRunCLI_MergeError tests merge with insufficient files
+func TestRunCLI_MergeError(t *testing.T) {
+	dir := t.TempDir()
+	file1 := filepath.Join(dir, "file1.json")
+	_ = os.WriteFile(file1, []byte("{}"), 0644)
+
+	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
+	_, stderr := captureOutput(t, func() {
+		code := RunCLI([]string{"--merge", file1})
+		if code == 0 {
+			t.Error("expected non-zero exit")
+		}
+	})
+
+	if !strings.Contains(stderr, "requires at least 2 files") {
+		t.Errorf("expected error about 2 files, got %s", stderr)
+	}
+}
+
+// TestRunCLI_ExportAvailable tests the --export-available flag
+func TestRunCLI_ExportAvailable(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "input.json")
+	output := filepath.Join(dir, "output.txt")
+
+	data := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "a.com"}, {Domain: "b.com"}}}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(input, b, 0644)
+
+	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
+	stdout, _ := captureOutput(t, func() {
+		code := RunCLI([]string{"--export-available=" + output, input})
+		if code != 0 {
+			t.Errorf("expected exit 0, got %d", code)
+		}
+	})
+
+	if !strings.Contains(stdout, "Exported 2") {
+		t.Errorf("expected export message, got %s", stdout)
+	}
+
+	raw, _ := os.ReadFile(output)
+	if !strings.Contains(string(raw), "a.com") || !strings.Contains(string(raw), "b.com") {
+		t.Errorf("expected domains in output, got %s", string(raw))
+	}
+}
+
+// TestRunCLI_Clean tests the --clean flag
+func TestRunCLI_Clean(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "domains.json")
+
+	data := ExtendedGroupedData{
+		Available:  []GroupedDomain{{Domain: "good.com"}},
+		Unverified: []DomainRecord{{Domain: "invalid"}},
+	}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(file, b, 0644)
+
+	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
+	stdout, _ := captureOutput(t, func() {
+		code := RunCLI([]string{"--clean", file})
+		if code != 0 {
+			t.Errorf("expected exit 0, got %d", code)
+		}
+	})
+
+	if !strings.Contains(stdout, "Removed 1") {
+		t.Errorf("expected removal message, got %s", stdout)
+	}
+}
+
+// TestRunCLI_LightspeedFlag tests the --lightspeed flag parsing
+func TestRunCLI_LightspeedFlag(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helperClose(t, ln, "listener")
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				_, _ = io.Copy(io.Discard, c)
+				_, _ = io.WriteString(c, "No match for domain")
+				helperClose(nil, c, "conn")
+			}(conn)
+		}
+	}()
+
+	dir := t.TempDir()
+	file := filepath.Join(dir, "domains.json")
+	data := ExtendedGroupedData{Unverified: []DomainRecord{{Domain: "a.com"}, {Domain: "b.com"}}}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(file, b, 0644)
+
+	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
+	stdout, _ := captureOutput(t, func() {
+		code := RunCLI([]string{"--whois=" + ln.Addr().String(), "--lightspeed=2", file})
+		if code != 0 {
+			t.Errorf("expected exit 0, got %d", code)
+		}
+	})
+
+	if !strings.Contains(stdout, "a.com") || !strings.Contains(stdout, "b.com") {
+		t.Errorf("expected domains in output, got %s", stdout)
+	}
+}
