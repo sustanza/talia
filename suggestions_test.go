@@ -22,26 +22,18 @@ func (f fakeHTTPClient) Do(req *http.Request) (*http.Response, error) {
 
 // TestGenerateDomainSuggestionsSuccess verifies we parse suggestions correctly.
 func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
-	// fake OpenAI server
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// return structured output JSON
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"a.com\"}]}"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"a.com\"}]}"}}]}}]}`)
 	}))
 	defer srv.Close()
 
-	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
-	t.Cleanup(func() {
-		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
-	})
-
-	got, err := GenerateDomainSuggestions("key", "", 1)
+	got, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err != nil {
-		t.Fatalf("GenerateDomainSuggestions returned error: %v", err)
+		t.Fatalf("generateSuggestions returned error: %v", err)
 	}
 	if len(got) != 1 || got[0].Domain != "a.com" {
 		t.Fatalf("unexpected suggestions: %+v", got)
@@ -49,38 +41,33 @@ func TestGenerateDomainSuggestionsSuccess(t *testing.T) {
 }
 
 func TestGenerateDomainSuggestionsHTTPError(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
-	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
-	t.Cleanup(func() {
-		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
-	})
-
-	_, err := GenerateDomainSuggestions("key", "", 1)
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err == nil {
 		t.Fatal("expected error on HTTP 500")
 	}
 }
 
 func TestRunCLISuggest(t *testing.T) {
+	// Integration test: cannot be parallel due to test hooks and env vars
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"b.com\"}]}"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"b.com\"}]}"}}]}}]}`)
 	}))
 	defer srv.Close()
 
-	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
+	testHTTPClient = fakeHTTPClient{srv}
+	testBaseURL = srv.URL
 	t.Cleanup(func() {
-		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
+		testHTTPClient = nil
+		testBaseURL = ""
 	})
 
 	tmp, err := os.CreateTemp("", "sugg_*.json")
@@ -104,16 +91,14 @@ func TestRunCLISuggest(t *testing.T) {
 		}
 	}()
 
-	stdout, stderr := captureOutput(t, func() {
+	stdout, _ := captureOutput(t, func() {
 		code := RunCLI([]string{"--suggest=1", tmp.Name()})
 		if code != 0 {
 			t.Errorf("expected exit 0, got %d", code)
 		}
 	})
 
-	if stderr != "" {
-		t.Errorf("unexpected stderr: %s", stderr)
-	}
+	// Spinner output is expected on stderr, so we don't check for empty stderr
 	if !strings.Contains(stdout, "Wrote domain suggestions") {
 		t.Errorf("missing success message: %s", stdout)
 	}
@@ -129,6 +114,7 @@ func TestRunCLISuggest(t *testing.T) {
 }
 
 func TestRunCLISuggestModelFlag(t *testing.T) {
+	// Integration test: cannot be parallel due to test hooks and env vars
 	var gotModel string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -139,16 +125,15 @@ func TestRunCLISuggestModelFlag(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"c.com\"}]}"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"c.com\"}]}"}}]}}]}`)
 	}))
 	defer srv.Close()
 
-	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
+	testHTTPClient = fakeHTTPClient{srv}
+	testBaseURL = srv.URL
 	t.Cleanup(func() {
-		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
-		openAIModel = defaultOpenAIModel
+		testHTTPClient = nil
+		testBaseURL = ""
 	})
 
 	tmp, err := os.CreateTemp("", "sugg_model_*.json")
@@ -182,7 +167,8 @@ func TestRunCLISuggestModelFlag(t *testing.T) {
 }
 
 func TestGenerateDomainSuggestionsNoAPIKey(t *testing.T) {
-	_, err := GenerateDomainSuggestions("", "", 1)
+	t.Parallel()
+	_, err := generateSuggestions("", "", 1, "gpt-4o", http.DefaultClient, "", nil)
 	if err == nil || err.Error() != "OPENAI_API_KEY is not set" {
 		t.Fatalf("expected OPENAI_API_KEY error, got %v", err)
 	}
@@ -195,69 +181,67 @@ func (errClient) Do(*http.Request) (*http.Response, error) {
 }
 
 func TestGenerateDomainSuggestionsRequestError(t *testing.T) {
-	suggestionHTTPClient = errClient{}
-	t.Cleanup(func() { suggestionHTTPClient = http.DefaultClient })
-	_, err := GenerateDomainSuggestions("key", "", 1)
+	t.Parallel()
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", errClient{}, "http://localhost", nil)
 	if err == nil || !strings.Contains(err.Error(), "openai request") {
 		t.Fatalf("expected openai request error, got %v", err)
 	}
 }
 
 func TestGenerateDomainSuggestionsDecodeError(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "not-json")
 	}))
 	defer srv.Close()
-	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
-	t.Cleanup(func() {
-		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
-	})
-	_, err := GenerateDomainSuggestions("key", "", 1)
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err == nil || !strings.Contains(err.Error(), "decode response") {
 		t.Fatalf("expected decode error, got %v", err)
 	}
 }
 
 func TestGenerateDomainSuggestionsNoChoices(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"choices":[]}`)
 	}))
 	defer srv.Close()
-	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
-	t.Cleanup(func() {
-		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
-	})
-	_, err := GenerateDomainSuggestions("key", "", 1)
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err == nil || !strings.Contains(err.Error(), "no choices") {
 		t.Fatalf("expected no choices error, got %v", err)
 	}
 }
 
-func TestGenerateDomainSuggestionsUnmarshalError(t *testing.T) {
+func TestGenerateDomainSuggestionsNoToolCalls(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"function_call":{"name":"suggest_domains","arguments":"not-json"}}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[]}}]}`)
 	}))
 	defer srv.Close()
-	suggestionHTTPClient = fakeHTTPClient{srv}
-	openAIBase = srv.URL
-	t.Cleanup(func() {
-		suggestionHTTPClient = http.DefaultClient
-		openAIBase = "https://api.openai.com/v1"
-	})
-	_, err := GenerateDomainSuggestions("key", "", 1)
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
+	if err == nil || !strings.Contains(err.Error(), "no tool calls") {
+		t.Fatalf("expected no tool calls error, got %v", err)
+	}
+}
+
+func TestGenerateDomainSuggestionsUnmarshalError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"not-json"}}]}}]}`)
+	}))
+	defer srv.Close()
+	_, err := generateSuggestions("key", "", 1, "gpt-4o", fakeHTTPClient{srv}, srv.URL, nil)
 	if err == nil || !strings.Contains(err.Error(), "unmarshal structured output") {
 		t.Fatalf("expected unmarshal error, got %v", err)
 	}
 }
 
 func TestWriteSuggestionsFile_Error(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "dir")
 	if err != nil {
 		t.Fatal(err)
@@ -266,5 +250,48 @@ func TestWriteSuggestionsFile_Error(t *testing.T) {
 	err = writeSuggestionsFile(dir, []DomainRecord{{Domain: "a.com"}})
 	if err == nil {
 		t.Fatal("expected error writing to directory, got nil")
+	}
+}
+
+func TestNormalizeDomain(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  string
+	}{
+		// Valid domains
+		{"example.com", "example.com"},
+		{"EXAMPLE.COM", "example.com"},
+		{"  example.com  ", "example.com"},
+
+		// Repeated .com suffixes
+		{"example.com.com", "example.com"},
+		{"example.com.com.com", "example.com"},
+		{"Lordboard..com.com.com", "lordboard.com"},
+
+		// Double dots
+		{"example..com", "example.com"},
+		{"ex..am..ple.com", ""}, // becomes ex.am.ple.com which has subdomains, invalid
+
+		// Invalid: wrong TLD
+		{"example.net", ""},
+		{"example.org", ""},
+
+		// Invalid: no name
+		{".com", ""},
+		{"", ""},
+
+		// Invalid: subdomains (not simple name.com)
+		{"sub.example.com", ""},
+		{"a.b.com", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := normalizeDomain(tt.input)
+			if got != tt.want {
+				t.Errorf("normalizeDomain(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
 }
