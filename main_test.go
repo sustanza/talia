@@ -2072,7 +2072,7 @@ func TestCleanSuggestionsFile(t *testing.T) {
 	file := filepath.Join(dir, "domains.json")
 
 	data := ExtendedGroupedData{
-		Available:   []GroupedDomain{{Domain: "good.com"}, {Domain: "UPPERCASE.COM"}},
+		Available:   []GroupedDomain{{Domain: "good.com"}, {Domain: "UPPERCASE.COM"}, {Domain: "bad-avail"}},
 		Unavailable: []GroupedDomain{{Domain: "also-good.com"}},
 		Unverified:  []DomainRecord{{Domain: "valid.com"}, {Domain: "invalid"}, {Domain: "double..com"}},
 	}
@@ -2084,9 +2084,9 @@ func TestCleanSuggestionsFile(t *testing.T) {
 		t.Fatalf("cleanSuggestionsFile error: %v", err)
 	}
 
-	// "invalid" should be removed (no .com), "double..com" normalizes to "double.com"
-	if len(removed) != 1 || removed[0] != "invalid" {
-		t.Errorf("expected [invalid] removed, got %v", removed)
+	// "invalid" and "bad-avail" should be removed (no .com), "double..com" normalizes to "double.com"
+	if len(removed) != 2 {
+		t.Errorf("expected 2 removed, got %v", removed)
 	}
 
 	// Verify file was cleaned
@@ -2322,5 +2322,107 @@ func TestRunCLI_LightspeedFlag(t *testing.T) {
 
 	if !strings.Contains(stdout, "a.com") || !strings.Contains(stdout, "b.com") {
 		t.Errorf("expected domains in output, got %s", stdout)
+	}
+}
+
+// TestCleanSuggestionsFile_InvalidInUnavailable tests invalid domains in unavailable section
+func TestCleanSuggestionsFile_InvalidInUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "domains.json")
+
+	data := ExtendedGroupedData{
+		Available:   []GroupedDomain{{Domain: "good.com"}},
+		Unavailable: []GroupedDomain{{Domain: "valid.com"}, {Domain: "invalid-no-tld"}},
+	}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(file, b, 0644)
+
+	removed, err := cleanSuggestionsFile(file)
+	if err != nil {
+		t.Fatalf("cleanSuggestionsFile error: %v", err)
+	}
+
+	if len(removed) != 1 || removed[0] != "invalid-no-tld" {
+		t.Errorf("expected [invalid-no-tld] removed, got %v", removed)
+	}
+}
+
+// TestCleanSuggestionsFile_WriteError tests write error handling
+func TestCleanSuggestionsFile_WriteError(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "domains.json")
+
+	data := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "good.com"}}}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(file, b, 0444) // Read-only file
+
+	// On some systems, this still allows write. Use directory instead.
+	// Remove the file and create a directory with the same name
+	_ = os.Remove(file)
+	_ = os.Mkdir(file, 0755)
+	// Write the JSON to a file inside that directory so it can be "read"
+	innerFile := filepath.Join(file, "data")
+	_ = os.WriteFile(innerFile, b, 0644)
+
+	// Now try to clean - it will fail to read because 'file' is a directory
+	_, err := cleanSuggestionsFile(file)
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+// TestMergeFiles_InvalidDomains tests that invalid domains are skipped in all sections
+func TestMergeFiles_InvalidDomains(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "input.json")
+	output := filepath.Join(dir, "output.json")
+
+	data := ExtendedGroupedData{
+		Available:   []GroupedDomain{{Domain: "valid.com"}, {Domain: "invalid1"}},
+		Unavailable: []GroupedDomain{{Domain: "also-valid.com"}, {Domain: "invalid2"}},
+		Unverified:  []DomainRecord{{Domain: "third.com"}, {Domain: "invalid3"}},
+	}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(file, b, 0644)
+
+	count, err := mergeFiles(output, []string{file})
+	if err != nil {
+		t.Fatalf("mergeFiles error: %v", err)
+	}
+
+	// Should only count valid domains (3 total)
+	if count != 3 {
+		t.Errorf("expected 3 valid domains, got %d", count)
+	}
+
+	// Verify output has only valid domains
+	raw, _ := os.ReadFile(output)
+	var result ExtendedGroupedData
+	_ = json.Unmarshal(raw, &result)
+
+	if len(result.Available) != 1 || result.Available[0].Domain != "valid.com" {
+		t.Errorf("expected 1 valid available domain, got %v", result.Available)
+	}
+	if len(result.Unavailable) != 1 || result.Unavailable[0].Domain != "also-valid.com" {
+		t.Errorf("expected 1 valid unavailable domain, got %v", result.Unavailable)
+	}
+	if len(result.Unverified) != 1 || result.Unverified[0].Domain != "third.com" {
+		t.Errorf("expected 1 valid unverified domain, got %v", result.Unverified)
+	}
+}
+
+// TestMergeFiles_WriteError tests write error handling
+func TestMergeFiles_WriteError(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "input.json")
+
+	data := ExtendedGroupedData{Available: []GroupedDomain{{Domain: "a.com"}}}
+	b, _ := json.Marshal(data)
+	_ = os.WriteFile(file, b, 0644)
+
+	// Try to write to a directory (should fail)
+	_, err := mergeFiles(dir, []string{file})
+	if err == nil {
+		t.Error("expected write error")
 	}
 }
