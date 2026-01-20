@@ -27,17 +27,21 @@ func shouldIncludeLog(verbose bool, reason AvailabilityReason) bool {
 // checkDomains performs WHOIS checks on a list of domains and returns the results.
 func checkDomains(domains []string, whoisServer string, sleep time.Duration, verbose bool) []checkResult {
 	results := make([]checkResult, 0, len(domains))
+	prog := newProgress(len(domains))
+	stats := newCheckStats()
 
 	for _, domain := range domains {
-		fmt.Printf("Checking %s on %s\n", domain, whoisServer)
+		prog.Increment()
 
 		avail, reason, logData, err := CheckDomainAvailability(domain, whoisServer)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "WHOIS error for %s: %v\n", domain, err)
 			avail = false
 			reason = ReasonError
 			logData = fmt.Sprintf("Error: %v", err)
 		}
+
+		prog.PrintCheck(domain, avail, reason)
+		stats.Record(avail, reason)
 
 		log := ""
 		if shouldIncludeLog(verbose, reason) {
@@ -54,6 +58,7 @@ func checkDomains(domains []string, whoisServer string, sleep time.Duration, ver
 		time.Sleep(sleep)
 	}
 
+	stats.PrintSummary()
 	return results
 }
 
@@ -288,7 +293,12 @@ func RunCLI(args []string) int {
 		if !*fresh {
 			existingDomains = readExistingDomains(targetFile)
 		}
+
+		spin := newSpinner("Generating suggestions...")
+		spin.Start()
 		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), promptText, suggestCount, modelName, baseURL, existingDomains)
+		spin.Stop()
+
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
 			return 1

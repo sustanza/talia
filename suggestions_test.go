@@ -91,16 +91,14 @@ func TestRunCLISuggest(t *testing.T) {
 		}
 	}()
 
-	stdout, stderr := captureOutput(t, func() {
+	stdout, _ := captureOutput(t, func() {
 		code := RunCLI([]string{"--suggest=1", tmp.Name()})
 		if code != 0 {
 			t.Errorf("expected exit 0, got %d", code)
 		}
 	})
 
-	if stderr != "" {
-		t.Errorf("unexpected stderr: %s", stderr)
-	}
+	// Spinner output is expected on stderr, so we don't check for empty stderr
 	if !strings.Contains(stdout, "Wrote domain suggestions") {
 		t.Errorf("missing success message: %s", stdout)
 	}

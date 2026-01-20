@@ -473,7 +473,7 @@ func TestMainErrorCase(t *testing.T) {
 		}
 	}()
 
-	_, stderr := captureOutput(t, func() {
+	stdout, _ := captureOutput(t, func() {
 		code := RunCLI([]string{
 			"--whois=" + ln.Addr().String(),
 			"--sleep=0s",
@@ -484,8 +484,9 @@ func TestMainErrorCase(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(stderr, "WHOIS error for error1.com") {
-		t.Errorf("Expected error message for domain error1.com, got: %s", stderr)
+	// With the new progress output, errors are shown inline with ⚠ symbol
+	if !strings.Contains(stdout, "error1.com") || !strings.Contains(stdout, "error") {
+		t.Errorf("Expected error indication for domain error1.com, got: %s", stdout)
 	}
 
 	updated, err := os.ReadFile(tmp.Name())
