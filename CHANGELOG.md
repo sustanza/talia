@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/sustanza/talia/compare/v1.3.1...v1.4.0) (2026-01-20)
+
+
+### Features
+
+* **cli:** add parallel WHOIS checking, enhanced merge, and visual feedback ([#23](https://github.com/sustanza/talia/issues/23)) ([d3b1cc1](https://github.com/sustanza/talia/commit/d3b1cc13fdf12b71a76d7752fd14ff9a8cace3a9))
+
 ## [1.3.1](https://github.com/sustanza/talia/compare/v1.3.0...v1.3.1) (2025-06-03)
 
 
