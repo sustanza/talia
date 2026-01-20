@@ -187,11 +187,38 @@ Use the `--suggest` flag to generate domain ideas. If you also provide `--whois`
 
 ### Merging Domain Files
 
-Use `--merge` to combine domains from one file into another:
+Use `--merge` to combine multiple domain files:
 
-    ./talia --merge=source.json target.json
+    # Merge multiple files into a new output file (inputs unchanged)
+    ./talia --merge -o combined.json file1.json file2.json file3.json
 
-This merges all domains from `source.json` into `target.json`, preserving their categories (available, unavailable, unverified). Duplicates are automatically skipped.
+    # Merge files into the first file listed
+    ./talia --merge file1.json file2.json file3.json
+
+This merges all domains preserving their categories (available, unavailable, unverified). Duplicates are automatically skipped.
+
+### Exporting Available Domains
+
+Use `--export-available` to export just the available domains to a plain text file:
+
+    ./talia --export-available=available.txt suggestions.json
+
+This writes one domain per line, making it easy to use with other tools.
+
+### Parallel WHOIS Checking (Lightspeed Mode)
+
+Use `--lightspeed` for parallel WHOIS checking:
+
+    # Use 10 concurrent workers (default)
+    ./talia --whois=whois.verisign-grs.com:43 --lightspeed domains.json
+
+    # Use 50 concurrent workers
+    ./talia --whois=whois.verisign-grs.com:43 --lightspeed=50 domains.json
+
+    # Maximum parallelism (one goroutine per domain)
+    ./talia --whois=whois.verisign-grs.com:43 --lightspeed=max domains.json
+
+This dramatically speeds up checking large domain lists. Note that aggressive parallelism may trigger rate limiting on some WHOIS servers.
 
 ### Cleaning Domain Files
 
@@ -314,7 +341,10 @@ Talia's test suite covers:
 - **`--api-base=<url>`**: Base URL for OpenAI-compatible API (default: https://api.openai.com/v1). Can also be set via `OPENAI_API_BASE` environment variable.
 - **`--fresh`**: Don't pass existing domains to AI when generating suggestions (allows duplicates, starts fresh)
 - **`--no-verify`**: Skip WHOIS verification after generating suggestions (by default, suggestions are verified if `--whois` is provided)
-- **`--merge=<file>`**: Merge domains from another file into the target file
+- **`--merge`**: Merge multiple domain files (use with `-o` to specify output file)
+- **`-o=<path>`**: Output file for merge operation (if not set, merges into first file)
+- **`--export-available=<path>`**: Export available domains to a plain text file (one domain per line)
+- **`--lightspeed[=<n>]`**: Enable parallel WHOIS checking with n workers (default 10, or `max` for unlimited)
 - **`--clean`**: Clean and normalize domains in the file (removes invalid domains, fixes malformed entries)
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains (can also be set via `TALIA_FILE` env var)
 
