@@ -1496,7 +1496,7 @@ func TestRunCLIGroupedInput_WriteError(t *testing.T) {
 	dir := t.TempDir()
 	ext := ExtendedGroupedData{Unverified: []DomainRecord{{Domain: "a.com"}}}
 	_, stderr := captureOutput(t, func() {
-		code := RunCLIGroupedInput(ln.Addr().String(), "input.json", ext, 0, false, true, dir)
+		code := RunCLIGroupedInput(ln.Addr().String(), "input.json", ext, 0, false, true, dir, 0)
 		if code == 0 {
 			t.Error("expected non-zero exit")
 		}
@@ -1524,7 +1524,7 @@ func TestRunCLIDomainArray_GroupedSuccess(t *testing.T) {
 	outFile := filepath.Join(t.TempDir(), "out.json")
 	domains := []DomainRecord{{Domain: "a.com"}}
 	_, stderr := captureOutput(t, func() {
-		code := RunCLIDomainArray(ln.Addr().String(), "in.json", domains, 0, false, true, outFile)
+		code := RunCLIDomainArray(ln.Addr().String(), "in.json", domains, 0, false, true, outFile, 0)
 		if code != 0 {
 			t.Fatalf("expected exit 0, got %d", code)
 		}
@@ -1567,7 +1567,7 @@ func TestRunCLIDomainArray_GroupedOverwrite(t *testing.T) {
 
 	domains := []DomainRecord{{Domain: "a.com"}}
 	stdout, stderr := captureOutput(t, func() {
-		code := RunCLIDomainArray(ln.Addr().String(), inputFile.Name(), domains, 0, false, true, "")
+		code := RunCLIDomainArray(ln.Addr().String(), inputFile.Name(), domains, 0, false, true, "", 0)
 		if code != 0 {
 			t.Fatalf("expected exit 0, got %d", code)
 		}
@@ -1605,7 +1605,7 @@ func TestRunCLIDomainArray_WriteGroupedError(t *testing.T) {
 	dir := t.TempDir()
 	domains := []DomainRecord{{Domain: "a.com"}}
 	_, stderr := captureOutput(t, func() {
-		code := RunCLIDomainArray(ln.Addr().String(), "in.json", domains, 0, false, true, dir)
+		code := RunCLIDomainArray(ln.Addr().String(), "in.json", domains, 0, false, true, dir, 0)
 		if code == 0 {
 			t.Error("expected non-zero exit")
 		}
@@ -1627,7 +1627,7 @@ func TestRunCLIDomainArray_ErrorHandling(t *testing.T) {
 	}
 
 	stdout, _ := captureOutput(t, func() {
-		code := RunCLIDomainArray("127.0.0.1:1", tmp.Name(), domains, 0, true, false, "")
+		code := RunCLIDomainArray("127.0.0.1:1", tmp.Name(), domains, 0, true, false, "", 0)
 		if code != 0 {
 			t.Fatalf("expected exit 0, got %d", code)
 		}
@@ -1664,7 +1664,7 @@ func TestRunCLIDomainArray_WriteInputDirError(t *testing.T) {
 	}()
 
 	dir := t.TempDir()
-	code := RunCLIDomainArray(ln.Addr().String(), dir, []DomainRecord{{Domain: "a.com"}}, 0, false, false, "")
+	code := RunCLIDomainArray(ln.Addr().String(), dir, []DomainRecord{{Domain: "a.com"}}, 0, false, false, "", 0)
 	if code == 0 {
 		t.Error("expected non-zero code")
 	}
@@ -1686,7 +1686,7 @@ func TestRunCLIDomainArray_GroupedOverwriteWriteError(t *testing.T) {
 	}()
 
 	dir := t.TempDir()
-	code := RunCLIDomainArray(ln.Addr().String(), dir, []DomainRecord{{Domain: "a.com"}}, 0, false, true, "")
+	code := RunCLIDomainArray(ln.Addr().String(), dir, []DomainRecord{{Domain: "a.com"}}, 0, false, true, "", 0)
 	if code == 0 {
 		t.Error("expected non-zero code")
 	}
@@ -1710,7 +1710,7 @@ func TestRunCLIGroupedInput_Verbose(t *testing.T) {
 	tmpFile := filepath.Join(t.TempDir(), "out.json")
 	ext := ExtendedGroupedData{Unverified: []DomainRecord{{Domain: "a.com"}}}
 	_, _ = captureOutput(t, func() {
-		code := RunCLIGroupedInput(ln.Addr().String(), tmpFile, ext, 0, true, true, tmpFile)
+		code := RunCLIGroupedInput(ln.Addr().String(), tmpFile, ext, 0, true, true, tmpFile, 0)
 		if code != 0 {
 			t.Fatalf("expected 0, got %d", code)
 		}

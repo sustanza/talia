@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -25,14 +26,22 @@ func shouldIncludeLog(verbose bool, reason AvailabilityReason) bool {
 }
 
 // checkDomains performs WHOIS checks on a list of domains and returns the results.
-func checkDomains(domains []string, whoisServer string, sleep time.Duration, verbose bool) []checkResult {
+// If workers > 0, it uses parallel processing with the specified number of workers.
+// If workers == 0, it uses sequential processing with sleep between checks.
+func checkDomains(domains []string, whoisServer string, sleep time.Duration, verbose bool, workers int) []checkResult {
+	if workers > 0 {
+		return checkDomainsParallel(domains, whoisServer, verbose, workers)
+	}
+	return checkDomainsSequential(domains, whoisServer, sleep, verbose)
+}
+
+// checkDomainsSequential performs WHOIS checks sequentially with sleep between checks.
+func checkDomainsSequential(domains []string, whoisServer string, sleep time.Duration, verbose bool) []checkResult {
 	results := make([]checkResult, 0, len(domains))
 	prog := newProgress(len(domains))
 	stats := newCheckStats()
 
 	for _, domain := range domains {
-		prog.Increment()
-
 		avail, reason, logData, err := CheckDomainAvailability(domain, whoisServer)
 		if err != nil {
 			avail = false
@@ -40,7 +49,7 @@ func checkDomains(domains []string, whoisServer string, sleep time.Duration, ver
 			logData = fmt.Sprintf("Error: %v", err)
 		}
 
-		prog.PrintCheck(domain, avail, reason)
+		prog.IncrementAndPrint(domain, avail, reason)
 		stats.Record(avail, reason)
 
 		log := ""
@@ -62,6 +71,68 @@ func checkDomains(domains []string, whoisServer string, sleep time.Duration, ver
 	return results
 }
 
+// checkDomainsParallel performs WHOIS checks using a worker pool.
+func checkDomainsParallel(domains []string, whoisServer string, verbose bool, workers int) []checkResult {
+	// workers == -1 means unlimited (one per domain)
+	if workers < 0 || workers > len(domains) {
+		workers = len(domains)
+	}
+
+	results := make([]checkResult, len(domains))
+	prog := newProgress(len(domains))
+	stats := newCheckStats()
+
+	// Job represents a domain to check with its index
+	type job struct {
+		index  int
+		domain string
+	}
+
+	jobs := make(chan job, len(domains))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				avail, reason, logData, err := CheckDomainAvailability(j.domain, whoisServer)
+				if err != nil {
+					avail = false
+					reason = ReasonError
+					logData = fmt.Sprintf("Error: %v", err)
+				}
+
+				prog.IncrementAndPrint(j.domain, avail, reason)
+				stats.Record(avail, reason)
+
+				log := ""
+				if shouldIncludeLog(verbose, reason) {
+					log = logData
+				}
+
+				results[j.index] = checkResult{
+					Domain: j.domain,
+					Avail:  avail,
+					Reason: reason,
+					Log:    log,
+				}
+			}
+		}()
+	}
+
+	// Send jobs
+	for i, domain := range domains {
+		jobs <- job{index: i, domain: domain}
+	}
+	close(jobs)
+
+	wg.Wait()
+	stats.PrintSummary()
+	return results
+}
+
 // RunCLIDomainArray handles the original array input logic (non-grouped or grouped output).
 func RunCLIDomainArray(
 	whoisServer, inputPath string,
@@ -69,6 +140,7 @@ func RunCLIDomainArray(
 	sleep time.Duration,
 	verbose, groupedOutput bool,
 	outputFile string,
+	workers int,
 ) int {
 	// Extract domain names for checking
 	domainNames := make([]string, len(domains))
@@ -76,7 +148,7 @@ func RunCLIDomainArray(
 		domainNames[i] = domains[i].Domain
 	}
 
-	results := checkDomains(domainNames, whoisServer, sleep, verbose)
+	results := checkDomains(domainNames, whoisServer, sleep, verbose, workers)
 
 	if !groupedOutput {
 		// =========== Non-Grouped Mode ===========
@@ -142,6 +214,7 @@ func RunCLIGroupedInput(
 	sleep time.Duration,
 	verbose, groupedOutput bool,
 	outputFile string,
+	workers int,
 ) int {
 	finalOutputFile := outputFile
 	if !groupedOutput || outputFile == "" {
@@ -161,7 +234,7 @@ func RunCLIGroupedInput(
 		domainNames[i] = ext.Unverified[i].Domain
 	}
 
-	results := checkDomains(domainNames, whoisServer, sleep, verbose)
+	results := checkDomains(domainNames, whoisServer, sleep, verbose, workers)
 
 	for _, res := range results {
 		gd := GroupedDomain{
@@ -215,6 +288,7 @@ func RunCLI(args []string) int {
 	merge := fs.Bool("merge", false, "Merge multiple domain files")
 	output := fs.String("o", "", "Output file for merge (if not set, merges into first file)")
 	exportAvailable := fs.String("export-available", "", "Export available domains to a text file")
+	lightspeed := fs.String("lightspeed", "", "Parallel workers (default 10, or 'max' for unlimited)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
@@ -287,6 +361,22 @@ func RunCLI(args []string) int {
 		return 0
 	}
 
+	// Parse lightspeed flag: "" = sequential, "max" = unlimited, number = worker count
+	workers := 0
+	if *lightspeed != "" {
+		if *lightspeed == "max" {
+			workers = -1 // sentinel for "use domain count"
+		} else {
+			n, err := strconv.Atoi(*lightspeed)
+			if err != nil || n < 1 {
+				// --lightspeed without value defaults to 10
+				workers = 10
+			} else {
+				workers = n
+			}
+		}
+	}
+
 	// Use env var if --suggest not provided
 	suggestCount := *suggest
 	if suggestCount == 0 {
@@ -356,9 +446,9 @@ func RunCLI(args []string) int {
 				fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", inputPath, err)
 				return 1
 			}
-			// Use 100ms sleep for auto-verification
+			// Use 100ms sleep for auto-verification (or lightspeed if set)
 			verifySleep := 100 * time.Millisecond
-			return RunCLIGroupedInput(whois, inputPath, ext, verifySleep, *verbose, true, "")
+			return RunCLIGroupedInput(whois, inputPath, ext, verifySleep, *verbose, true, "", workers)
 		}
 		return 0
 	}
@@ -384,13 +474,13 @@ func RunCLI(args []string) int {
 	err = json.Unmarshal(raw, &domains)
 	if err == nil {
 		// Plain slice of domain records
-		return RunCLIDomainArray(*whoisServer, inputPath, domains, *sleep, *verbose, *groupedOutput, *outputFile)
+		return RunCLIDomainArray(*whoisServer, inputPath, domains, *sleep, *verbose, *groupedOutput, *outputFile, workers)
 	}
 
 	// If that fails, try to parse as a grouped JSON that might contain unverified.
 	var ext ExtendedGroupedData
 	if err2 := json.Unmarshal(raw, &ext); err2 == nil {
-		return RunCLIGroupedInput(*whoisServer, inputPath, ext, *sleep, *verbose, *groupedOutput, *outputFile)
+		return RunCLIGroupedInput(*whoisServer, inputPath, ext, *sleep, *verbose, *groupedOutput, *outputFile, workers)
 	}
 
 	// If both fail, then it's truly invalid JSON or an unexpected format.

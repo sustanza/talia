@@ -3,6 +3,8 @@ package talia
 import (
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -65,24 +67,23 @@ func (s *spinner) Stop() {
 	<-s.done
 }
 
-// progress tracks the current position in a series of operations.
+// progress tracks the current position in a series of operations (thread-safe).
 type progress struct {
-	current int
-	total   int
+	current int64
+	total   int64
+	mu      sync.Mutex // protects printing
 }
 
 // newProgress creates a new progress counter with the given total.
 func newProgress(total int) *progress {
-	return &progress{total: total}
+	return &progress{total: int64(total)}
 }
 
-// Increment advances the progress counter by one.
-func (p *progress) Increment() {
-	p.current++
-}
+// IncrementAndPrint atomically increments the counter and prints the check result.
+// This is thread-safe for concurrent use.
+func (p *progress) IncrementAndPrint(domain string, available bool, reason AvailabilityReason) {
+	current := atomic.AddInt64(&p.current, 1)
 
-// PrintCheck outputs a formatted progress line for a domain check.
-func (p *progress) PrintCheck(domain string, available bool, reason AvailabilityReason) {
 	var symbol, color, status string
 	switch {
 	case reason == ReasonError:
@@ -98,14 +99,17 @@ func (p *progress) PrintCheck(domain string, available bool, reason Availability
 		color = colorRed
 		status = "taken"
 	}
-	fmt.Printf("[%d/%d] %s %s%s%s %s\n", p.current, p.total, domain, color, symbol, colorReset, status)
+
+	p.mu.Lock()
+	fmt.Printf("[%d/%d] %s %s%s%s %s\n", current, p.total, domain, color, symbol, colorReset, status)
+	p.mu.Unlock()
 }
 
-// checkStats tracks statistics for domain checks.
+// checkStats tracks statistics for domain checks (thread-safe).
 type checkStats struct {
-	available int
-	taken     int
-	errors    int
+	available int64
+	taken     int64
+	errors    int64
 	startTime time.Time
 }
 
@@ -114,15 +118,15 @@ func newCheckStats() *checkStats {
 	return &checkStats{startTime: time.Now()}
 }
 
-// Record updates stats based on a check result.
+// Record updates stats based on a check result (thread-safe).
 func (s *checkStats) Record(available bool, reason AvailabilityReason) {
 	switch {
 	case reason == ReasonError:
-		s.errors++
+		atomic.AddInt64(&s.errors, 1)
 	case available:
-		s.available++
+		atomic.AddInt64(&s.available, 1)
 	default:
-		s.taken++
+		atomic.AddInt64(&s.taken, 1)
 	}
 }
 
