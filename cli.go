@@ -270,25 +270,33 @@ func RunCLIGroupedInput(
 	return 0
 }
 
+// skipEnvFile is a test hook to skip loading .env files during tests.
+var skipEnvFile bool
+
 // RunCLI is the main entry point for Talia logic.
 func RunCLI(args []string) int {
+	// Load .env file from current directory (silently ignore if not found)
+	if !skipEnvFile {
+		_ = LoadEnvFile(".env")
+	}
+
 	fs := flag.NewFlagSet("talia", flag.ContinueOnError)
-	whoisServer := fs.String("whois", "", "WHOIS server, e.g. whois.verisign-grs.com:43 (required)")
+	whoisServer := fs.String("whois", "", "WHOIS server, e.g. whois.verisign-grs.com:43 (env: WHOIS_SERVER)")
 	sleep := fs.Duration("sleep", 2*time.Second, "Time to sleep between domain checks (default 2s)")
 	verbose := fs.Bool("verbose", false, "Include WHOIS log in 'log' field even for successful checks")
 	groupedOutput := fs.Bool("grouped-output", false, "Enable grouped output (JSON object with 'available','unavailable')")
 	outputFile := fs.String("output-file", "", "Path to grouped output file (if set, input file remains unmodified)")
-	suggest := fs.Int("suggest", 0, "Number of domain suggestions to generate (if >0, no WHOIS checks are run)")
-	prompt := fs.String("prompt", "", "Optional prompt to influence domain suggestions")
-	model := fs.String("model", defaultOpenAIModel, "OpenAI model to use for suggestions")
-	apiBase := fs.String("api-base", "", "Base URL for OpenAI-compatible API (default: https://api.openai.com/v1)")
+	suggest := fs.Int("suggest", 0, "Number of domain suggestions to generate (env: TALIA_SUGGEST)")
+	prompt := fs.String("prompt", "", "Optional prompt to influence domain suggestions (env: TALIA_PROMPT)")
+	model := fs.String("model", defaultOpenAIModel, "OpenAI model to use for suggestions (env: TALIA_MODEL)")
+	apiBase := fs.String("api-base", "", "Base URL for OpenAI-compatible API (env: OPENAI_API_BASE)")
 	fresh := fs.Bool("fresh", false, "Don't pass existing domains to AI (allows duplicates, starts fresh)")
 	clean := fs.Bool("clean", false, "Clean and normalize domains in the file (removes invalid domains)")
 	noVerify := fs.Bool("no-verify", false, "Skip WHOIS verification after generating suggestions")
 	merge := fs.Bool("merge", false, "Merge multiple domain files")
 	output := fs.String("o", "", "Output file for merge (if not set, merges into first file)")
 	exportAvailable := fs.String("export-available", "", "Export available domains to a text file")
-	lightspeed := fs.String("lightspeed", "", "Parallel workers (default 10, or 'max' for unlimited)")
+	lightspeed := fs.String("lightspeed", "", "Parallel workers: number or 'max' (env: TALIA_LIGHTSPEED)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, "Error parsing flags:", err)
@@ -362,14 +370,19 @@ func RunCLI(args []string) int {
 	}
 
 	// Parse lightspeed flag: "" = sequential, "max" = unlimited, number = worker count
+	// Falls back to TALIA_LIGHTSPEED env var
 	workers := 0
-	if *lightspeed != "" {
-		if *lightspeed == "max" {
+	ls := *lightspeed
+	if ls == "" {
+		ls = os.Getenv("TALIA_LIGHTSPEED")
+	}
+	if ls != "" {
+		if ls == "max" {
 			workers = -1 // sentinel for "use domain count"
 		} else {
-			n, err := strconv.Atoi(*lightspeed)
+			n, err := strconv.Atoi(ls)
 			if err != nil || n < 1 {
-				// --lightspeed without value defaults to 10
+				// invalid value defaults to 10
 				workers = 10
 			} else {
 				workers = n
@@ -377,12 +390,23 @@ func RunCLI(args []string) int {
 		}
 	}
 
-	// Use env var if --suggest not provided
+	// Determine suggest count: use flag if provided, otherwise check env var
+	// But only use env var if file has no unverified domains to check
 	suggestCount := *suggest
 	if suggestCount == 0 {
 		if envSuggest := os.Getenv("TALIA_SUGGEST"); envSuggest != "" {
-			if n, err := strconv.Atoi(envSuggest); err == nil {
-				suggestCount = n
+			if n, err := strconv.Atoi(envSuggest); err == nil && n > 0 {
+				// Check if file has unverified domains - if so, don't use env var
+				hasUnverified := false
+				if raw, err := os.ReadFile(targetFile); err == nil {
+					var ext ExtendedGroupedData
+					if json.Unmarshal(raw, &ext) == nil && len(ext.Unverified) > 0 {
+						hasUnverified = true
+					}
+				}
+				if !hasUnverified {
+					suggestCount = n
+				}
 			}
 		}
 	}

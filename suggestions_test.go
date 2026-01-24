@@ -263,6 +263,9 @@ func TestNormalizeDomain(t *testing.T) {
 		{"example.com", "example.com"},
 		{"EXAMPLE.COM", "example.com"},
 		{"  example.com  ", "example.com"},
+		{"my-domain.com", "my-domain.com"},
+		{"test123.com", "test123.com"},
+		{"a1b2c3.com", "a1b2c3.com"},
 
 		// Repeated .com suffixes
 		{"example.com.com", "example.com"},
@@ -284,6 +287,22 @@ func TestNormalizeDomain(t *testing.T) {
 		// Invalid: subdomains (not simple name.com)
 		{"sub.example.com", ""},
 		{"a.b.com", ""},
+
+		// Invalid: spaces in domain name
+		{"flora board.com", ""},
+		{"hello board.com", ""},
+		{"my domain.com", ""},
+
+		// Invalid: special characters
+		{"test_domain.com", ""},
+		{"test@domain.com", ""},
+		{"test!domain.com", ""},
+		{"test#domain.com", ""},
+
+		// Invalid: hyphen at start or end
+		{"-example.com", ""},
+		{"example-.com", ""},
+		{"-test-.com", ""},
 	}
 
 	for _, tt := range tests {
