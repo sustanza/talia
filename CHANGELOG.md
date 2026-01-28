@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/sustanza/talia/compare/v1.4.0...v1.5.0) (2026-01-28)
+
+
+### Features
+
+* add domain validation and improve test isolation ([#25](https://github.com/sustanza/talia/issues/25)) ([b2bad6e](https://github.com/sustanza/talia/commit/b2bad6e350fc9385f6ed7bf2893a58d1343e71c9))
+* parallel suggestion requests, text file cleaning, and README update ([#27](https://github.com/sustanza/talia/issues/27)) ([52aabfe](https://github.com/sustanza/talia/commit/52aabfe4f73b91cb6b276d07e200302fa7f0e760))
+
 ## [1.4.0](https://github.com/sustanza/talia/compare/v1.3.1...v1.4.0) (2026-01-20)
 
 
