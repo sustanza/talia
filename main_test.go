@@ -15,6 +15,16 @@ import (
 	"testing"
 )
 
+// TestMain sets up the test environment to prevent tests from hitting real APIs.
+func TestMain(m *testing.M) {
+	// Disable .env file loading for all tests
+	skipEnvFile = true
+	// Clear any existing OpenAI API key to prevent accidental API calls
+	_ = os.Unsetenv("OPENAI_API_KEY")
+	_ = os.Unsetenv("OPENAI_API_BASE")
+	os.Exit(m.Run())
+}
+
 // helperClose checks and reports Close errors.
 func helperClose(t *testing.T, c io.Closer, ctx string) {
 	if err := c.Close(); err != nil {
@@ -175,8 +185,9 @@ func TestArgParsing(t *testing.T) {
 
 	// Arg but no --whois
 	flag.CommandLine = flag.NewFlagSet("TestArgParsingNoWhois", flag.ContinueOnError)
+	tmpPath := filepath.Join(t.TempDir(), "somefile.json")
 	_, stderr = captureOutput(t, func() {
-		code := RunCLI([]string{"somefile.json"})
+		code := RunCLI([]string{tmpPath})
 		if code == 0 {
 			t.Error("Expected non-zero code if whois is missing")
 		}

@@ -7,17 +7,22 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 )
 
+// validDomainLabel matches a valid domain label: alphanumeric, may contain hyphens
+// but cannot start or end with a hyphen.
+var validDomainLabel = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
 const (
-	defaultOpenAIBase       = "https://api.openai.com/v1"
-	systemPrompt            = "You generate domain name ideas. All domain names must end with .com. Do not return any domain without .com."
-	userPromptTemplate      = "%s Return %d unique domain suggestions in the 'unverified' array. Each domain must end with .com. Do not return any domain without .com."
-	userPromptWithExcludes  = "%s Return %d unique domain suggestions in the 'unverified' array. Each domain must end with .com. Do not return any domain without .com. Do NOT suggest any of these existing domains: %s"
-	defaultOpenAIModel      = "gpt-4o"
-	functionName            = "suggest_domains"
-	functionDesc            = "Generate domain name ideas."
+	defaultOpenAIBase      = "https://api.openai.com/v1"
+	systemPrompt           = "You generate domain name ideas. All domain names must end with .com. Do not return any domain without .com."
+	userPromptTemplate     = "%s Return %d unique domain suggestions in the 'unverified' array. Each domain must end with .com. Do not return any domain without .com."
+	userPromptWithExcludes = "%s Return %d unique domain suggestions in the 'unverified' array. Each domain must end with .com. Do not return any domain without .com. Do NOT suggest any of these existing domains: %s"
+	defaultOpenAIModel     = "gpt-5-mini"
+	functionName           = "suggest_domains"
+	functionDesc           = "Generate domain name ideas."
 )
 
 // suggestionSchema defines the JSON structure returned by OpenAI when
@@ -188,6 +193,12 @@ func normalizeDomain(domain string) string {
 	// Basic format validation: name.com
 	parts := strings.Split(d, ".")
 	if len(parts) != 2 || parts[0] == "" {
+		return ""
+	}
+
+	// Validate the label contains only valid characters (letters, digits, hyphens)
+	// and doesn't start or end with a hyphen
+	if !validDomainLabel.MatchString(parts[0]) {
 		return ""
 	}
 
