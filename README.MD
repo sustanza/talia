@@ -4,7 +4,13 @@
 [![Release](https://img.shields.io/github/v/release/sustanza/talia?logo=github&sort=semver)](https://github.com/sustanza/talia/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/sustanza/talia.svg)](https://pkg.go.dev/github.com/sustanza/talia)
 
-Talia is a lightweight command-line application for checking the availability of domains (e.g. `.com`) by querying a user-specified WHOIS server. It processes a JSON file containing domain records and updates them with WHOIS responses (availability, reason, logs), or optionally produces a separate grouped output.
+Talia is a command-line tool for domain name discovery. It combines **AI-powered domain suggestion generation** (via OpenAI, Google Gemini, or any OpenAI-compatible API) with **WHOIS availability checking** to help you find available domain names fast.
+
+**Key capabilities:**
+
+- **AI Domain Generation** — Generate creative `.com` domain ideas using LLMs, with customizable prompts and parallel requests for high throughput
+- **WHOIS Availability Checking** — Verify domain availability via WHOIS servers, with sequential or parallel (lightspeed) modes
+- **End-to-End Workflow** — Generate suggestions, auto-verify them, clean/normalize results, merge files, and export available domains — all from a single CLI
 
 ## Table of Contents
 
@@ -32,7 +38,7 @@ Talia is a lightweight command-line application for checking the availability of
 
 ## Overview
 
-Talia reads a list of domains from a JSON file and connects to a **user-specified** WHOIS server to check each domain's availability. After each check, Talia can:
+Talia can generate domain name suggestions using AI, check domain availability via WHOIS, or both. When checking domains, it reads a list from a JSON file and connects to a **user-specified** WHOIS server. After each check, Talia can:
 
 1. **Non-grouped mode (default)**:  
    Talia updates the **original file** in an array format, for example:
@@ -165,6 +171,18 @@ Use the `--suggest` flag to generate domain ideas. If you also provide `--whois`
     # Use Google Gemini
     OPENAI_API_KEY=... ./talia --suggest=5 --whois=whois.verisign-grs.com:43 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-3.0-flash suggestions.json
 
+#### Parallel Suggestion Requests
+
+Use `--suggest-parallel` to fire multiple suggestion requests concurrently. Each request asks the AI for `--suggest` domains, so the total output is multiplied:
+
+    # Run 5 parallel requests, each generating 10 suggestions (up to 50 total)
+    ./talia --suggest=10 --suggest-parallel=5 --no-verify suggestions.json
+
+    # Set via environment variable
+    TALIA_SUGGEST_PARALLEL=3 ./talia --suggest=10 --no-verify suggestions.json
+
+This is useful for generating large batches of ideas quickly. Duplicates across requests are automatically removed when writing to the output file.
+
 **Important:** Talia will instruct the AI to only return domain names ending in `.com`. Talia automatically validates and normalizes all suggestions, fixing common issues like repeated `.com` suffixes (e.g., `example.com.com.com`) and double dots. Domains that can't be normalized to valid `name.com` format are silently discarded.
 
 **Example output (`suggestions.json`):**
@@ -222,9 +240,10 @@ This dramatically speeds up checking large domain lists. Note that aggressive pa
 
 ### Cleaning Domain Files
 
-Use `--clean` to sanitize an existing domain file. This normalizes all domains, removes invalid entries, and deduplicates:
+Use `--clean` to sanitize an existing domain file. This normalizes all domains, removes invalid entries, and deduplicates. Works with both JSON grouped files and plain text domain lists (one domain per line):
 
     ./talia --clean suggestions.json
+    ./talia --clean domains.txt
 
 The clean operation:
 - Converts domains to lowercase
@@ -335,9 +354,10 @@ Talia's test suite covers:
 - **`--verbose`**: Store WHOIS data in `"log"` even for successful checks
 - **`--grouped-output`**: Switch to grouped output
 - **`--output-file=<path>`**: If provided, Talia merges/writes grouped JSON to this file and leaves the input alone
-- **`--suggest=<n>`**: Generate <n> domain suggestions (can also be set via `TALIA_SUGGEST` env var)
+- **`--suggest=<n>`**: Generate <n> domain suggestions per request (can also be set via `TALIA_SUGGEST` env var)
+- **`--suggest-parallel=<n>`**: Run <n> suggestion requests in parallel (default 1; can also be set via `TALIA_SUGGEST_PARALLEL` env var)
 - **`--prompt=<text>`**: Text to influence domain suggestion themes (can also be set via `TALIA_PROMPT` env var)
-- **`--model=<name>`**: Model to use when generating suggestions (default: gpt-4o; can also be set via `TALIA_MODEL` env var)
+- **`--model=<name>`**: Model to use when generating suggestions (default: gpt-5-mini; can also be set via `TALIA_MODEL` env var)
 - **`--api-base=<url>`**: Base URL for OpenAI-compatible API (default: https://api.openai.com/v1). Can also be set via `OPENAI_API_BASE` environment variable.
 - **`--fresh`**: Don't pass existing domains to AI when generating suggestions (allows duplicates, starts fresh)
 - **`--no-verify`**: Skip WHOIS verification after generating suggestions (by default, suggestions are verified if `--whois` is provided)

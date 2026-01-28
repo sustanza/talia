@@ -2,7 +2,6 @@ package talia
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,50 +21,6 @@ const (
 	symbolTaken     = "✗"
 	symbolError     = "⚠"
 )
-
-// spinnerFrames defines the animation frames for the terminal spinner.
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
-// spinner displays an animated spinner in the terminal during long operations.
-type spinner struct {
-	message string
-	stop    chan struct{}
-	done    chan struct{}
-}
-
-// newSpinner creates a new spinner with the given message.
-func newSpinner(message string) *spinner {
-	return &spinner{
-		message: message,
-		stop:    make(chan struct{}),
-		done:    make(chan struct{}),
-	}
-}
-
-// Start begins the spinner animation in a goroutine.
-func (s *spinner) Start() {
-	go func() {
-		i := 0
-		for {
-			select {
-			case <-s.stop:
-				fmt.Fprintf(os.Stderr, "\r\033[K") // Clear line
-				close(s.done)
-				return
-			default:
-				fmt.Fprintf(os.Stderr, "\r%s %s", spinnerFrames[i%len(spinnerFrames)], s.message)
-				i++
-				time.Sleep(80 * time.Millisecond)
-			}
-		}
-	}()
-}
-
-// Stop halts the spinner animation and clears the line.
-func (s *spinner) Stop() {
-	close(s.stop)
-	<-s.done
-}
 
 // progress tracks the current position in a series of operations (thread-safe).
 type progress struct {
