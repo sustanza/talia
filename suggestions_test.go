@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -98,8 +99,8 @@ func TestRunCLISuggest(t *testing.T) {
 		}
 	})
 
-	// Spinner output is expected on stderr, so we don't check for empty stderr
-	if !strings.Contains(stdout, "Wrote domain suggestions") {
+	// Check for success message
+	if !strings.Contains(stdout, "suggestions total") {
 		t.Errorf("missing success message: %s", stdout)
 	}
 
@@ -250,6 +251,38 @@ func TestWriteSuggestionsFile_Error(t *testing.T) {
 	err = writeSuggestionsFile(dir, []DomainRecord{{Domain: "a.com"}})
 	if err == nil {
 		t.Fatal("expected error writing to directory, got nil")
+	}
+}
+
+func TestCleanTextFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "domains.txt")
+
+	content := "example.com\nINVALID DOMAIN.com\nexample.com\ntest123.com\n\n# comment\n-bad-.com\ntest123.com\ngood-name.com\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := cleanTextFile(path)
+	if err != nil {
+		t.Fatalf("cleanTextFile error: %v", err)
+	}
+
+	// Should have removed 2 invalid domains
+	if len(removed) != 2 {
+		t.Errorf("expected 2 removed, got %d: %v", len(removed), removed)
+	}
+
+	// Read back and verify
+	result, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(result)), "\n")
+	// Should have 3 unique valid domains
+	if len(lines) != 3 {
+		t.Errorf("expected 3 lines, got %d: %v", len(lines), lines)
 	}
 }
 

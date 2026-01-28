@@ -308,6 +308,41 @@ func cleanSuggestionsFile(path string) (removed []string, err error) {
 	return removed, os.WriteFile(path, out, 0644)
 }
 
+// cleanTextFile reads a plain text domain list (one per line), normalizes,
+// removes invalid domains, deduplicates, and writes back sorted.
+func cleanTextFile(path string) (removed []string, err error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool)
+	var cleaned []string
+
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		n := normalizeDomain(line)
+		if n == "" {
+			removed = append(removed, line)
+			continue
+		}
+		if !seen[n] {
+			seen[n] = true
+			cleaned = append(cleaned, n)
+		}
+	}
+
+	content := strings.Join(cleaned, "\n")
+	if len(cleaned) > 0 {
+		content += "\n"
+	}
+	return removed, os.WriteFile(path, []byte(content), 0644)
+}
+
 // mergeFiles merges domains from multiple input files into outputFile, deduplicating.
 // Returns the total number of unique domains in the merged result.
 func mergeFiles(outputFile string, inputFiles []string) (int, error) {

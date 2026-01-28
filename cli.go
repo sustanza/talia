@@ -287,6 +287,7 @@ func RunCLI(args []string) int {
 	groupedOutput := fs.Bool("grouped-output", false, "Enable grouped output (JSON object with 'available','unavailable')")
 	outputFile := fs.String("output-file", "", "Path to grouped output file (if set, input file remains unmodified)")
 	suggest := fs.Int("suggest", 0, "Number of domain suggestions to generate (env: TALIA_SUGGEST)")
+	suggestParallel := fs.Int("suggest-parallel", 1, "Number of parallel suggestion requests to run (env: TALIA_SUGGEST_PARALLEL)")
 	prompt := fs.String("prompt", "", "Optional prompt to influence domain suggestions (env: TALIA_PROMPT)")
 	model := fs.String("model", defaultOpenAIModel, "OpenAI model to use for suggestions (env: TALIA_MODEL)")
 	apiBase := fs.String("api-base", "", "Base URL for OpenAI-compatible API (env: OPENAI_API_BASE)")
@@ -315,7 +316,19 @@ func RunCLI(args []string) int {
 		return 1
 	}
 	if *clean {
-		removed, err := cleanSuggestionsFile(targetFile)
+		// Auto-detect format: try JSON first, fall back to plain text
+		raw, readErr := os.ReadFile(targetFile)
+		if readErr != nil {
+			fmt.Fprintln(os.Stderr, "Error reading file:", readErr)
+			return 1
+		}
+		var removed []string
+		var err error
+		if json.Valid(raw) {
+			removed, err = cleanSuggestionsFile(targetFile)
+		} else {
+			removed, err = cleanTextFile(targetFile)
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error cleaning file:", err)
 			return 1
@@ -437,20 +450,70 @@ func RunCLI(args []string) int {
 			existingDomains = readExistingDomains(targetFile)
 		}
 
-		spin := newSpinner("Generating suggestions...")
-		spin.Start()
-		list, err := GenerateDomainSuggestions(os.Getenv("OPENAI_API_KEY"), promptText, suggestCount, modelName, baseURL, existingDomains)
-		spin.Stop()
+		parallelReqs := *suggestParallel
+		if parallelReqs == 1 {
+			if envParallel := os.Getenv("TALIA_SUGGEST_PARALLEL"); envParallel != "" {
+				if n, err := strconv.Atoi(envParallel); err == nil && n > 0 {
+					parallelReqs = n
+				}
+			}
+		}
+		if parallelReqs < 1 {
+			parallelReqs = 1
+		}
 
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error generating suggestions:", err)
+		fmt.Printf("Starting %d parallel requests (each requesting %d suggestions)...\n", parallelReqs, suggestCount)
+
+		apiKey := os.Getenv("OPENAI_API_KEY")
+		var allResults []DomainRecord
+		var resultsMu sync.Mutex
+		var wg sync.WaitGroup
+		var firstErr error
+		var errMu sync.Mutex
+		var completed int
+		var completedMu sync.Mutex
+
+		for i := range parallelReqs {
+			wg.Add(1)
+			go func(reqNum int) {
+				defer wg.Done()
+				list, err := GenerateDomainSuggestions(apiKey, promptText, suggestCount, modelName, baseURL, existingDomains)
+
+				completedMu.Lock()
+				completed++
+				current := completed
+				completedMu.Unlock()
+
+				if err != nil {
+					fmt.Printf("  [%d/%d] Request %d failed: %v\n", current, parallelReqs, reqNum+1, err)
+					errMu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					errMu.Unlock()
+					return
+				}
+				fmt.Printf("  [%d/%d] Request %d returned %d suggestions\n", current, parallelReqs, reqNum+1, len(list))
+				resultsMu.Lock()
+				allResults = append(allResults, list...)
+				resultsMu.Unlock()
+			}(i)
+		}
+		wg.Wait()
+
+		if firstErr != nil && len(allResults) == 0 {
+			fmt.Fprintln(os.Stderr, "Error generating suggestions:", firstErr)
 			return 1
 		}
-		if err := writeSuggestionsFile(targetFile, list); err != nil {
+		if firstErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: some requests failed: %v\n", firstErr)
+		}
+
+		if err := writeSuggestionsFile(targetFile, allResults); err != nil {
 			fmt.Fprintln(os.Stderr, "Error writing suggestions file:", err)
 			return 1
 		}
-		fmt.Println("Wrote domain suggestions to", targetFile)
+		fmt.Printf("Collected %d suggestions total, wrote to %s (duplicates removed)\n", len(allResults), targetFile)
 
 		// Auto-verify suggestions if --whois is provided (or env var) and --no-verify is not set
 		whois := *whoisServer
