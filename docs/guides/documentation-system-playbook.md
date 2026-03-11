@@ -227,3 +227,7 @@ This structure is intentionally domain-agnostic. You can rename folders if neede
 - templates
 
 If you preserve that separation, the system scales across mobile, backend, infra, and full-stack projects.
+
+## Related Documentation
+
+- [Documentation Index](../README.md)

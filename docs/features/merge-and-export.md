@@ -49,8 +49,15 @@ talia --export-available available.txt domains.json
 - Writes domain names one per line with a trailing newline.
 - Order is preserved from the input file.
 
+## Limitations
+
+- `mergeFiles` uses first-write-wins, so file order matters when domains appear in different sections across files.
+- `mergeGrouped` (used by `--output-file`) produces non-deterministic JSON ordering due to Go map iteration. See [Known Issues](../plans/known-issues.md).
+- `mergeGrouped` operates on `GroupedData` which has no `unverified` field — unverified entries are silently dropped during merge via `--output-file`.
+
 ## Related Documentation
 
 - [ADR-004: Output Format Design](../decisions/004-output-format-design.md)
 - [Domain Checking](domain-checking.md)
+- [File Cleaning](file-cleaning.md) — shares `normalizeDomain()` validation
 - [Configuration Reference](../guides/configuration.md)

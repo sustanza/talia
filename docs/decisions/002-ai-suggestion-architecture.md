@@ -40,4 +40,5 @@ Key design choices:
 ## Related Documentation
 
 - [AI Suggestions](../features/ai-suggestions.md)
+- [Parallel Processing](../features/parallel-processing.md)
 - [Configuration Reference](../guides/configuration.md)

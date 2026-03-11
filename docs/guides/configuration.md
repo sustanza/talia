@@ -46,15 +46,36 @@ explicit CLI flag  >  shell environment variable  >  .env file
 
 ### `.env` File
 
-Talia loads a `.env` file from the current working directory at startup. Rules:
+Talia loads a `.env` file from the current working directory at startup.
+
+Example `.env` file:
+
+```
+OPENAI_API_KEY=your-api-key
+OPENAI_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
+WHOIS_SERVER=whois.verisign-grs.com:43
+TALIA_PROMPT=short brandable startup names
+TALIA_SUGGEST=10
+TALIA_MODEL=gemini-2.5-flash
+TALIA_FILE=suggestions.json
+```
+
+Rules:
 
 - Does **not** override existing shell environment variables.
 - Supports `KEY=VALUE` format (matching quotes — both `"` or both `'` — are stripped from values).
+- Lines without `=` are silently skipped.
+- No inline comment stripping — `KEY=value # comment` sets the value to `value # comment` (the full right-hand side).
+- A variable set to empty string in the shell (`export KEY=""`) counts as "existing" and will not be overwritten.
 - Silently ignored if the file doesn't exist.
 
-### `--model` / `TALIA_MODEL` Edge Case
+### Env Var Override Quirks
 
-The env var `TALIA_MODEL` only takes effect when the `--model` flag is at its hardcoded default (`gpt-5-mini`). This means explicitly passing `--model=gpt-5-mini` on the CLI still allows the env var to override it, since the comparison is against the string constant rather than whether the flag was explicitly set.
+The env vars for `--model` and `--suggest-parallel` only apply when the flag value equals its hardcoded default. This means explicitly passing the default value on the CLI (e.g., `--model=gpt-5-mini` or `--suggest-parallel=1`) still allows the env var to override it, since the comparison is against the string constant rather than whether the flag was explicitly set. See [Known Issues](../plans/known-issues.md).
+
+### `--sleep` During Auto-Verification
+
+The `--sleep` flag is ignored during the auto-verification step after `--suggest`. Auto-verification uses a hardcoded 100ms delay between WHOIS checks for speed. The `--sleep` value only applies to standalone WHOIS checking runs.
 
 ## Related Documentation
 

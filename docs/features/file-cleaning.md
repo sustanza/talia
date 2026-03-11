@@ -57,7 +57,23 @@ If nothing was removed:
 No invalid domains found.
 ```
 
+## Usage
+
+```bash
+# Clean a JSON domain file
+talia --clean domains.json
+
+# Clean a plain text domain file
+talia --clean domains.txt
+```
+
+## Limitations
+
+- No inline comment stripping for `.env`-style `# comment` at end of lines in plain text files — lines must start with `#` to be treated as comments.
+- Deduplication priority is fixed: available > unavailable > unverified. There is no way to customize this order.
+
 ## Related Documentation
 
+- [ADR-004: Output Format Design](../decisions/004-output-format-design.md) — defines the `ExtendedGroupedData` structure that `cleanSuggestionsFile` processes
 - [AI Suggestions](ai-suggestions.md) — suggestions pass through the same `normalizeDomain` validation
 - [Configuration Reference](../guides/configuration.md)

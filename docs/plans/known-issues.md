@@ -33,7 +33,7 @@ Both run at startup. The `main.go` loader runs first, so its overwrite behavior 
 **Severity:** Low
 **Component:** `cli.go`
 
-Invalid `--lightspeed` values (non-integer, non-`"max"` strings) silently default to 10 workers with no warning. Users may not realize their input was ignored.
+Invalid `--lightspeed` values (non-integer, non-`"max"` strings), zero, and negative numbers all silently default to 10 workers with no warning. Users may not realize their input was ignored.
 
 ---
 
@@ -64,8 +64,28 @@ The `"No match for"` availability check only works with Verisign-style WHOIS ser
 
 Progress output uses ANSI escape codes unconditionally. If stdout is piped or redirected to a file, raw escape codes will appear in the output. There is no `isatty` check to disable colors.
 
+---
+
+### `--suggest-parallel` env var override quirk
+
+**Severity:** Low
+**Component:** `cli.go`
+
+`TALIA_SUGGEST_PARALLEL` overrides `--suggest-parallel` when the flag value equals the default (`1`), even if the user explicitly passed `--suggest-parallel=1`. Same pattern as the `--model` / `TALIA_MODEL` quirk.
+
+---
+
+### `--sleep` ignored during auto-verification
+
+**Severity:** Low
+**Component:** `cli.go`
+
+When `--suggest` triggers auto-verification, the WHOIS sleep is hardcoded to 100ms regardless of the user's `--sleep` value. This is by design for speed, but the `--sleep` flag docs don't mention this exception.
+
 ## Related Documentation
 
 - [ADR-001: WHOIS Availability Detection](../decisions/001-whois-availability-detection.md)
 - [ADR-004: Output Format Design](../decisions/004-output-format-design.md)
+- [Parallel Processing](../features/parallel-processing.md)
+- [Merge and Export](../features/merge-and-export.md)
 - [Configuration Reference](../guides/configuration.md)

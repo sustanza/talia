@@ -96,8 +96,8 @@ Talia can generate domain name suggestions using AI, check domain availability v
 
 ### Prerequisites
 
-- Go 1.16 or later
-- golangci‑lint v2.1.6 (declared as a Go tool; Go 1.24+ will auto‑build it on first use)
+- Go 1.24.3 or later (uses `tool` directive in `go.mod`)
+- golangci-lint v2.8.0 (declared as a Go tool; auto-downloads on first use)
 
 ### Steps
 
@@ -369,6 +369,10 @@ Talia's test suite covers:
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains (can also be set via `TALIA_FILE` env var)
 
 ---
+
+## Documentation
+
+For detailed architecture decisions, feature specs, configuration reference, and development guides, see the [docs/](docs/README.md) directory.
 
 ## Contributing
 

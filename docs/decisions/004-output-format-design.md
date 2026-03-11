@@ -76,3 +76,4 @@ Used only for `--export-available` output and as an alternative `--clean` input.
 - [Domain Checking](../features/domain-checking.md)
 - [AI Suggestions](../features/ai-suggestions.md)
 - [Merge and Export](../features/merge-and-export.md)
+- [File Cleaning](../features/file-cleaning.md)

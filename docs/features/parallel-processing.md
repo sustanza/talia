@@ -57,8 +57,15 @@ talia --whois whois.verisign-grs.com:43 --lightspeed max domains.json
 talia --suggest 10 --suggest-parallel 3 --prompt "short tech startup names" domains.json
 ```
 
+## Limitations
+
+- `"max"` mode with thousands of domains will open that many TCP connections simultaneously, which may trigger WHOIS server rate limiting or IP bans.
+- Invalid `--lightspeed` values (including `0` and negative numbers) silently default to 10 workers with no warning. See [Known Issues](../plans/known-issues.md).
+- Parallel AI requests receive identical exclusion lists, so they may return overlapping suggestions. Deduplication happens after all requests complete.
+
 ## Related Documentation
 
 - [ADR-003: Parallel Processing Design](../decisions/003-parallel-processing-design.md)
 - [Domain Checking](domain-checking.md)
 - [AI Suggestions](ai-suggestions.md)
+- [Configuration Reference](../guides/configuration.md)
