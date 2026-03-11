@@ -22,6 +22,7 @@ docs/
     development.md
     configuration.md
     testing.md
+    documentation-system-playbook.md
   plans/                             # open risks and known issues
     known-issues.md
   templates/                         # authoring skeletons
@@ -61,6 +62,7 @@ docs/
 - [Development Guide](guides/development.md) — building, running, and contributing
 - [Configuration Reference](guides/configuration.md) — all flags, env vars, and `.env` support
 - [Testing Guide](guides/testing.md) — test architecture, mocking, and CI
+- [Documentation System Playbook](guides/documentation-system-playbook.md) — universal docs architecture guide
 
 ## Plans
 
