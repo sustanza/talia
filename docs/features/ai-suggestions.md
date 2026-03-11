@@ -12,7 +12,7 @@ Talia generates domain name suggestions by calling a large language model throug
 2. **Build the prompt** with the user's `--prompt` text, the requested count (`--suggest`), and an exclusion list of existing domains (unless `--fresh` is set).
 3. **Call the API** using a tool named `suggest_domains` with `tool_choice` forced, ensuring the model returns structured JSON.
 4. **Parse the response** from `choices[0].message.tool_calls[0].function.arguments`.
-5. **Normalize and deduplicate** each suggestion via `normalizeDomain()`, then append only new domains to the `unverified` array.
+5. **Normalize and deduplicate** via `writeSuggestionsFile()` — reads the existing file, builds a `seen` map from all three sections (available, unavailable, unverified), normalizes each suggestion with `normalizeDomain()`, and appends only truly new valid domains to the `unverified` array. Existing entries are preserved untouched.
 6. **Auto-verify** (optional): if a WHOIS server is configured and `--no-verify` is not set, immediately run WHOIS checks on the new suggestions.
 
 ## Prompt Structure
@@ -44,14 +44,19 @@ Every suggestion passes through `normalizeDomain()` which:
 
 ## Auto-Verification
 
-After suggestions are written, if a WHOIS server is configured and `--no-verify` is not set, the tool automatically calls `RunCLIGroupedInput()` with a 100ms sleep to verify the unverified domains via WHOIS.
+After suggestions are written, if a WHOIS server is configured and `--no-verify` is not set, the tool automatically verifies the unverified domains via WHOIS.
+
+- Uses a hardcoded 100ms sleep between sequential checks (not the user's `--sleep` value).
+- If `--lightspeed` is set, parallel workers are passed through to the verification step.
+- Verification moves domains from `unverified` into `available` or `unavailable`.
 
 ## `TALIA_SUGGEST` Env Var Behavior
 
 If `--suggest` is not set explicitly but `TALIA_SUGGEST` is in the environment:
-- **Used** if the target file has no pending `unverified` domains.
-- **Ignored** if the file already has `unverified` entries (prevents double-suggesting mid-workflow).
-- The explicit `--suggest` flag always fires regardless.
+- The file is parsed as `ExtendedGroupedData` to check for pending suggestions.
+- **Used** if the file has no pending `unverified` domains (or isn't grouped format).
+- **Ignored** if the file already has a non-empty `unverified` array (prevents double-suggesting mid-workflow).
+- The explicit `--suggest` flag always fires regardless of `unverified` state.
 
 ## Limitations
 

@@ -17,7 +17,7 @@ go tool cover -func=coverage.out
 
 | File | Scope |
 |---|---|
-| `main_test.go` | Integration tests for all CLI paths (~2440 lines) |
+| `main_test.go` | Integration tests for all CLI paths |
 | `whois_test.go` | Unit tests for WHOIS client via `fakeWhoisClient` |
 | `suggestions_test.go` | Unit and integration tests for AI suggestion pipeline |
 | `cmd/talia/main_test.go` | Tests that `main()` exits non-zero with no args |

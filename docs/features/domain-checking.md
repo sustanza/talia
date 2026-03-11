@@ -11,7 +11,8 @@ Talia checks domain availability by connecting to a WHOIS server over raw TCP an
 1. Opens a TCP connection to the configured `--whois` server (e.g., `whois.verisign-grs.com:43`).
 2. Sends `"<domain>\r\n"` and half-closes the write side (`CloseWrite`) to signal EOF.
 3. Reads the full response with `io.ReadAll`.
-4. Checks for the substring `"No match for"` in the response:
+4. Handles connection errors gracefully — `connection reset by peer`, `broken pipe`, and `connection closed` are normalized to an `"empty WHOIS response"` error rather than exposing raw TCP errors.
+5. Checks for the substring `"No match for"` in the response:
    - **Found** → domain is available (`NO_MATCH`)
    - **Not found** → domain is taken (`TAKEN`)
    - **Connection error or empty response** → `ERROR`
@@ -46,7 +47,7 @@ Each domain check prints a line to stdout:
 [3/50] broken.com ⚠ error
 ```
 
-In parallel mode, output lines are mutex-protected to prevent interleaving. A summary with counts and elapsed time is printed after all checks complete.
+In parallel mode, output lines are mutex-protected to prevent interleaving. A summary with counts and elapsed time is printed after all checks complete. Zero-count categories are suppressed from the summary. ANSI color codes are used unconditionally (no TTY detection — raw escape codes will appear if output is piped or redirected).
 
 ## Limitations
 

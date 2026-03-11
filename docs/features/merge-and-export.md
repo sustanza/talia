@@ -30,7 +30,7 @@ There are two distinct merge implementations in the codebase:
 1. **`mergeFiles()`** (`--merge` flag) — flat `seen` map, first-write-wins, normalizes domains.
 2. **`mergeGrouped()`** (`--output-file` with `--grouped-output`) — two maps (available/unavailable), **newest-wins** with bucket switching. A domain moving from taken to available in a newer run will be reclassified. Does not normalize domains.
 
-These have intentionally different semantics for different use cases.
+These have intentionally different semantics for different use cases. Note that `mergeGrouped` operates on `GroupedData` (no `unverified` field), so `unverified` entries are silently dropped when merging via `--output-file`.
 
 ## Export Available (`--export-available`)
 

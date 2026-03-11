@@ -4,7 +4,7 @@ Building, running, and contributing to Talia.
 
 ## Prerequisites
 
-- Go 1.24.3+ (uses `tool` directive in `go.mod` for golangci-lint)
+- Go 1.24.3 (as specified in `go.mod`; uses `tool` directive for golangci-lint)
 
 ## Build
 
@@ -49,7 +49,9 @@ All domain logic lives in the root `talia` package. The `cmd/talia/` sub-package
 go tool golangci-lint run
 ```
 
-Uses golangci-lint v2 via Go's tool directive — auto-downloads on first run. Config in `.golangci.yml` enables: `govet`, `staticcheck`, `errcheck`.
+Uses golangci-lint v2 (pinned to v2.8.0 in `go.mod`) via Go's tool directive — auto-downloads on first run. Config in `.golangci.yml` explicitly enables: `govet`, `staticcheck`, `errcheck`.
+
+Note: CI uses `golangci/golangci-lint-action@v8` (GitHub Action) rather than `go tool golangci-lint run`, but both read the same `.golangci.yml` config.
 
 ## Commit Convention
 

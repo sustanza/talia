@@ -49,7 +49,7 @@ explicit CLI flag  >  shell environment variable  >  .env file
 Talia loads a `.env` file from the current working directory at startup. Rules:
 
 - Does **not** override existing shell environment variables.
-- Supports `KEY=VALUE` format (quotes are stripped).
+- Supports `KEY=VALUE` format (matching quotes — both `"` or both `'` — are stripped from values).
 - Silently ignored if the file doesn't exist.
 
 ### `--model` / `TALIA_MODEL` Edge Case

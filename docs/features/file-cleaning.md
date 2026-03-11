@@ -43,11 +43,12 @@ The file content is tested with `json.Valid()`:
 
 ## Output
 
-Lists each removed domain with a `-` prefix:
+Prints a count header, then lists each removed domain with an indented `-` prefix:
 
 ```
-- invalid-domain
-- another.bad.domain
+Removed 2 invalid domains:
+  - invalid-domain
+  - another.bad.domain
 Cleaned domains.json
 ```
 
