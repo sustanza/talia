@@ -34,3 +34,4 @@ go.work.sum
 tmp/
 
 talia
+talia-bin
