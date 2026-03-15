@@ -56,7 +56,7 @@ OPENAI_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
 WHOIS_SERVER=whois.verisign-grs.com:43
 TALIA_PROMPT=short brandable startup names
 TALIA_SUGGEST=10
-TALIA_MODEL=gemini-2.5-flash
+TALIA_MODEL=gemini-3.1-flash-lite
 TALIA_FILE=suggestions.json
 ```
 

@@ -156,7 +156,7 @@ OPENAI_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
 WHOIS_SERVER=whois.verisign-grs.com:43
 TALIA_PROMPT=short brandable startup names
 TALIA_SUGGEST=10
-TALIA_MODEL=gemini-2.5-flash
+TALIA_MODEL=gemini-3.1-flash-lite
 TALIA_FILE=suggestions.json
 ```
 
@@ -169,7 +169,7 @@ Use the `--suggest` flag to generate domain ideas. If you also provide `--whois`
     OPENAI_API_KEY=... ./talia --suggest=5 --no-verify --prompt="short brandable names" suggestions.json
 
     # Use Google Gemini
-    OPENAI_API_KEY=... ./talia --suggest=5 --whois=whois.verisign-grs.com:43 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-3.0-flash suggestions.json
+    OPENAI_API_KEY=... ./talia --suggest=5 --whois=whois.verisign-grs.com:43 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-3.1-flash-lite suggestions.json
 
 #### Parallel Suggestion Requests
 
