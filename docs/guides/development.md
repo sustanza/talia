@@ -9,7 +9,7 @@ Building, running, and contributing to Talia.
 ## Build
 
 ```bash
-go build -o talia
+go build -o talia ./cmd/talia/
 ```
 
 The binary is built from `cmd/talia/main.go`, which is a thin wrapper around `talia.RunCLI()`.

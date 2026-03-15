@@ -106,7 +106,7 @@ Talia can generate domain name suggestions using AI, check domain availability v
     cd talia
 
     # Build Talia:
-    go build -o talia
+    go build -o talia ./cmd/talia/
 
 ---
 

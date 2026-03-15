@@ -5,7 +5,7 @@ Talia is a CLI tool for checking `.com` domain availability via WHOIS and genera
 ## Quick Commands
 
 ```bash
-go build -o talia              # build
+go build -o talia ./cmd/talia/ # build
 go test -v                     # test
 go test -race -coverprofile=coverage.out ./...  # test with race + coverage
 go tool golangci-lint run      # lint
