@@ -20,9 +20,9 @@ go tool cover -func=coverage.out
 | `main_test.go` | Integration tests for all CLI paths |
 | `whois_test.go` | Unit tests for WHOIS client via `fakeWhoisClient` |
 | `suggestions_test.go` | Unit and integration tests for AI suggestion pipeline |
-| `grouped_test.go` | Grouped output file merging (order, newest-wins, `unverified` preservation) |
+| `grouped_test.go` | Writing results into an existing grouped file (order, newest-wins, keeping `unverified`) |
 | `progress_test.go` | Progress output coloring (terminal detection, `NO_COLOR`) |
-| `cmd/talia/main_test.go` | Tests that `main()` exits non-zero with no args |
+| `cmd/talia/main_test.go` | `main()` exit code and `.env` precedence (shell env wins, quotes stripped) |
 
 All library tests are in the `talia` package (white-box), giving access to unexported types and functions.
 
@@ -48,7 +48,7 @@ Two approaches:
 - Sets `skipEnvFile = true` to prevent `.env` file loading during tests.
 - Unsets `OPENAI_API_KEY` and `OPENAI_API_BASE` to prevent real API calls.
 
-Individual tests that modify env vars use `defer os.Unsetenv(...)` for cleanup.
+Individual tests that modify env vars use `t.Setenv(...)`, which restores the original value when the test ends. Older tests use `defer os.Unsetenv(...)`.
 
 ## Output Capture
 
@@ -63,7 +63,7 @@ The `captureOutput` helper (in `main_test.go`) uses `os.Pipe()` to redirect `os.
 ## Key Patterns
 
 - **Flag isolation:** `RunCLI` uses `flag.NewFlagSet` (not `flag.CommandLine`), so parallel tests don't share flag state.
-- **Temp files:** Tests create temporary files for input/output and clean up via `defer os.Remove(...)`.
+- **Temp files:** New tests use `t.TempDir()`, which is removed automatically. Older tests create temporary files and clean up via `defer os.Remove(...)`.
 - **Exit code testing:** `cmd/talia/main_test.go` overrides the `exitFunc` variable to capture exit codes without actually calling `os.Exit`.
 
 ## Related Documentation

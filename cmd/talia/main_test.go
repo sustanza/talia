@@ -66,13 +66,19 @@ func TestMainShellEnvOverridesDotEnv(t *testing.T) {
 }
 
 func TestMainDotEnvStripsQuotes(t *testing.T) {
-	dir := writeDotEnv(t, "TALIA_FILE=\"quoted.json\"\n")
-	t.Setenv("TALIA_FILE", "")
-	_ = os.Unsetenv("TALIA_FILE")
+	for _, line := range []string{`TALIA_FILE="quoted.json"`, `TALIA_FILE='quoted.json'`} {
+		t.Run(line, func(t *testing.T) {
+			dir := writeDotEnv(t, line+"\n")
+			// t.Setenv registers restoration of the original value; the unset then
+			// leaves TALIA_FILE absent so the .env value applies.
+			t.Setenv("TALIA_FILE", "")
+			_ = os.Unsetenv("TALIA_FILE")
 
-	stderr := runMainInDir(t, dir)
+			stderr := runMainInDir(t, dir)
 
-	if !strings.Contains(stderr, "Error reading quoted.json:") {
-		t.Errorf("expected quotes stripped from .env value, stderr: %q", stderr)
+			if !strings.Contains(stderr, "Error reading quoted.json:") {
+				t.Errorf("expected quotes stripped from .env value, stderr: %q", stderr)
+			}
+		})
 	}
 }

@@ -22,17 +22,24 @@ func writeGroupedFixture(t *testing.T, v any) string {
 	return path
 }
 
-// readGroupedDomains returns the domain names in each bucket of a grouped file.
-func readGroupedDomains(t *testing.T, path string) (available, unavailable []string) {
+// readGroupedFile parses the grouped file at path.
+func readGroupedFile(t *testing.T, path string) ExtendedGroupedData {
 	t.Helper()
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read grouped file: %v", err)
 	}
-	var gd GroupedData
+	var gd ExtendedGroupedData
 	if err := json.Unmarshal(raw, &gd); err != nil {
 		t.Fatalf("parse grouped file: %v", err)
 	}
+	return gd
+}
+
+// readGroupedDomains returns the domain names in each bucket of a grouped file.
+func readGroupedDomains(t *testing.T, path string) (available, unavailable []string) {
+	t.Helper()
+	gd := readGroupedFile(t, path)
 	for _, d := range gd.Available {
 		available = append(available, d.Domain)
 	}
@@ -97,14 +104,7 @@ func TestWriteGroupedFile_RecheckInSameBucketUpdatesInPlace(t *testing.T) {
 		t.Fatalf("WriteGroupedFile: %v", err)
 	}
 
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read grouped file: %v", err)
-	}
-	var got GroupedData
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("parse grouped file: %v", err)
-	}
+	got := readGroupedFile(t, path)
 	want := []GroupedDomain{
 		{Domain: "first.com", Reason: ReasonTaken},
 		{Domain: "flaky.com", Reason: ReasonTaken},
@@ -173,9 +173,9 @@ func TestWriteGroupedFile_KeepsUnverifiedDomains(t *testing.T) {
 	path := writeGroupedFixture(t, ExtendedGroupedData{
 		Available: []GroupedDomain{{Domain: "old.com", Reason: ReasonNoMatch}},
 		Unverified: []DomainRecord{
-			{Domain: "pending1.com"},
+			{Domain: "waiting1.com"},
 			{Domain: "checked.com"},
-			{Domain: "pending2.com", Log: "suggested"},
+			{Domain: "waiting2.com", Log: "suggested"},
 		},
 	})
 
@@ -186,15 +186,8 @@ func TestWriteGroupedFile_KeepsUnverifiedDomains(t *testing.T) {
 		t.Fatalf("WriteGroupedFile: %v", err)
 	}
 
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read grouped file: %v", err)
-	}
-	var got ExtendedGroupedData
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("parse grouped file: %v", err)
-	}
-	wantUnverified := []DomainRecord{{Domain: "pending1.com"}, {Domain: "pending2.com", Log: "suggested"}}
+	got := readGroupedFile(t, path)
+	wantUnverified := []DomainRecord{{Domain: "waiting1.com"}, {Domain: "waiting2.com", Log: "suggested"}}
 	if !reflect.DeepEqual(got.Unverified, wantUnverified) {
 		t.Errorf("unverified = %+v, want %+v", got.Unverified, wantUnverified)
 	}
