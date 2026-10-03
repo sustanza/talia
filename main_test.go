@@ -2,6 +2,7 @@
 package talia
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -2435,5 +2437,95 @@ func TestMergeFiles_WriteError(t *testing.T) {
 	_, err := mergeFiles(dir, []string{file})
 	if err == nil {
 		t.Error("expected write error")
+	}
+}
+
+// startCountingWhois starts a WHOIS server that reports every domain as available
+// and returns its address and a function reporting how many connections it accepted.
+func startCountingWhois(t *testing.T) (string, func() int64) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var conns atomic.Int64
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conns.Add(1)
+			go func(c net.Conn) {
+				_, _ = bufio.NewReader(c).ReadString('\n')
+				_, _ = io.WriteString(c, "No match for domain")
+				_ = c.Close()
+			}(conn)
+		}
+	}()
+	return ln.Addr().String(), conns.Load
+}
+
+func TestRunCLI_InvalidLightspeedIsRejected(t *testing.T) {
+	cases := []struct {
+		name, flagValue, envValue, wantInErr string
+	}{
+		{"word flag", "fast", "", `"fast"`},
+		{"zero flag", "0", "", `"0"`},
+		{"negative flag", "-3", "", `"-3"`},
+		{"word env", "", "fast", "TALIA_LIGHTSPEED"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			addr, conns := startCountingWhois(t)
+			file := filepath.Join(t.TempDir(), "domains.json")
+			if err := os.WriteFile(file, []byte(`[{"domain":"a.com"}]`), 0644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("TALIA_LIGHTSPEED", tc.envValue)
+
+			args := []string{"--whois=" + addr}
+			if tc.flagValue != "" {
+				args = append(args, "--lightspeed="+tc.flagValue)
+			}
+			var code int
+			_, stderr := captureOutput(t, func() { code = RunCLI(append(args, file)) })
+
+			if code != 1 {
+				t.Errorf("exit code = %d, want 1", code)
+			}
+			if !strings.Contains(stderr, tc.wantInErr) || !strings.Contains(stderr, "max") {
+				t.Errorf("stderr %q should mention %s and the valid forms", stderr, tc.wantInErr)
+			}
+			if n := conns(); n != 0 {
+				t.Errorf("made %d WHOIS connections, want 0", n)
+			}
+		})
+	}
+}
+
+func TestRunCLI_ValidLightspeedChecksAllDomains(t *testing.T) {
+	for _, value := range []string{"", "max", "4"} {
+		t.Run("value="+value, func(t *testing.T) {
+			addr, conns := startCountingWhois(t)
+			file := filepath.Join(t.TempDir(), "domains.json")
+			if err := os.WriteFile(file, []byte(`[{"domain":"a.com"},{"domain":"b.com"}]`), 0644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("TALIA_LIGHTSPEED", "")
+
+			var code int
+			captureOutput(t, func() {
+				code = RunCLI([]string{"--whois=" + addr, "--sleep=0", "--lightspeed=" + value, file})
+			})
+
+			if code != 0 {
+				t.Errorf("exit code = %d, want 0", code)
+			}
+			if n := conns(); n != 2 {
+				t.Errorf("made %d WHOIS connections, want 2", n)
+			}
+		})
 	}
 }

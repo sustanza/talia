@@ -7,31 +7,55 @@ import (
 )
 
 // mergeGrouped merges new grouped results into existing grouped data, deduplicating by domain.
+// The newest result for a domain wins. Existing entries keep their position when re-checked
+// into the same bucket; new domains, and domains that change bucket, are appended in input
+// order, so repeated writes produce stable output.
 func mergeGrouped(existing, newest GroupedData) GroupedData {
-	domainsAvail := make(map[string]GroupedDomain)
+	// latest holds the newest entry per domain and which bucket it belongs in.
+	type bucketedEntry struct {
+		rec       GroupedDomain
+		available bool
+	}
+	latest := make(map[string]bucketedEntry)
 	for _, gd := range existing.Available {
-		domainsAvail[gd.Domain] = gd
+		latest[gd.Domain] = bucketedEntry{gd, true}
 	}
-	domainsUnavail := make(map[string]GroupedDomain)
 	for _, gd := range existing.Unavailable {
-		domainsUnavail[gd.Domain] = gd
+		latest[gd.Domain] = bucketedEntry{gd, false}
 	}
-
 	for _, gd := range newest.Available {
-		domainsAvail[gd.Domain] = gd
-		delete(domainsUnavail, gd.Domain)
+		latest[gd.Domain] = bucketedEntry{gd, true}
 	}
 	for _, gd := range newest.Unavailable {
-		domainsUnavail[gd.Domain] = gd
-		delete(domainsAvail, gd.Domain)
+		latest[gd.Domain] = bucketedEntry{gd, false}
 	}
 
+	// Emit domains in order of first appearance within their final bucket.
 	out := GroupedData{}
-	for _, rec := range domainsAvail {
-		out.Available = append(out.Available, rec)
+	emitted := make(map[string]bool)
+	emit := func(gd GroupedDomain, available bool) {
+		r := latest[gd.Domain]
+		if emitted[gd.Domain] || r.available != available {
+			return
+		}
+		emitted[gd.Domain] = true
+		if available {
+			out.Available = append(out.Available, r.rec)
+		} else {
+			out.Unavailable = append(out.Unavailable, r.rec)
+		}
 	}
-	for _, rec := range domainsUnavail {
-		out.Unavailable = append(out.Unavailable, rec)
+	for _, gd := range existing.Available {
+		emit(gd, true)
+	}
+	for _, gd := range newest.Available {
+		emit(gd, true)
+	}
+	for _, gd := range existing.Unavailable {
+		emit(gd, false)
+	}
+	for _, gd := range newest.Unavailable {
+		emit(gd, false)
 	}
 	return out
 }
@@ -54,14 +78,22 @@ func ConvertArrayToGrouped(arr []DomainRecord) GroupedData {
 	return gd
 }
 
+// groupedFile is the on-disk shape written by WriteGroupedFile: both result buckets are
+// always present, and unverified only when it still has domains waiting to be checked.
+type groupedFile struct {
+	GroupedData
+	Unverified []DomainRecord `json:"unverified,omitempty"`
+}
+
 // WriteGroupedFile reads an existing grouped JSON (if any), merges new data, and writes back.
 // If the existing file is an array (plain DomainRecord[]), we convert it to grouped before merging.
+// Unverified domains in the existing file are kept, except those that newest now has a result for.
 func WriteGroupedFile(path string, newest GroupedData) error {
 	if path == "" {
 		return nil
 	}
 
-	existing := GroupedData{}
+	existing := groupedFile{}
 
 	info, err := os.Stat(path)
 	if err == nil && info.Size() > 0 {
@@ -75,7 +107,7 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 		if err := json.Unmarshal(raw, &existing); err != nil {
 			var arr []DomainRecord
 			if err2 := json.Unmarshal(raw, &arr); err2 == nil {
-				existing = ConvertArrayToGrouped(arr)
+				existing = groupedFile{GroupedData: ConvertArrayToGrouped(arr)}
 			} else {
 				return fmt.Errorf("parse grouped file: %w", err)
 			}
@@ -84,7 +116,20 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 		return fmt.Errorf("read grouped file: %s is a directory", path)
 	}
 
-	merged := mergeGrouped(existing, newest)
+	checked := make(map[string]bool)
+	for _, gd := range newest.Available {
+		checked[gd.Domain] = true
+	}
+	for _, gd := range newest.Unavailable {
+		checked[gd.Domain] = true
+	}
+	merged := groupedFile{GroupedData: mergeGrouped(existing.GroupedData, newest)}
+	for _, rec := range existing.Unverified {
+		if !checked[rec.Domain] {
+			merged.Unverified = append(merged.Unverified, rec)
+		}
+	}
+
 	out, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal grouped data: %w", err)
@@ -94,4 +139,3 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 	}
 	return nil
 }
-

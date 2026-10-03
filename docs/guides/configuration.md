@@ -22,7 +22,7 @@ All CLI flags, environment variables, and `.env` file support.
 | `--merge` | bool | `false` | Merge multiple domain files with deduplication |
 | `-o` | string | — | Output file for `--merge` |
 | `--export-available` | string | — | Export available domains to a plain text file |
-| `--lightspeed` | string | — | Parallel WHOIS: `"max"`, an integer, or empty for sequential |
+| `--lightspeed` | string | — | Parallel WHOIS: `"max"`, a positive integer, or empty for sequential. Any other value exits with an error |
 
 ## Environment Variables
 
@@ -35,8 +35,9 @@ All CLI flags, environment variables, and `.env` file support.
 | `TALIA_SUGGEST` | `--suggest` | Ignored if file has pending `unverified` domains |
 | `TALIA_SUGGEST_PARALLEL` | `--suggest-parallel` | Number of parallel AI requests |
 | `TALIA_PROMPT` | `--prompt` | Extra context for AI suggestions |
-| `TALIA_MODEL` | `--model` | Only applies when `--model` is at its default value |
-| `TALIA_LIGHTSPEED` | `--lightspeed` | Parallel WHOIS worker count |
+| `TALIA_MODEL` | `--model` | AI model name |
+| `TALIA_LIGHTSPEED` | `--lightspeed` | Parallel WHOIS worker count; invalid values exit with an error |
+| `NO_COLOR` | — | Any non-empty value disables colored output ([no-color.org](https://no-color.org)) |
 
 ## Precedence
 
@@ -69,9 +70,9 @@ Rules:
 - A variable set to empty string in the shell (`export KEY=""`) counts as "existing" and will not be overwritten.
 - Silently ignored if the file doesn't exist.
 
-### Env Var Override Quirks
+### Explicit Flags Always Win
 
-The env vars for `--model` and `--suggest-parallel` only apply when the flag value equals its hardcoded default. This means explicitly passing the default value on the CLI (e.g., `--model=gpt-5-mini` or `--suggest-parallel=1`) still allows the env var to override it, since the comparison is against the string constant rather than whether the flag was explicitly set.
+`TALIA_MODEL`, `TALIA_SUGGEST_PARALLEL` and `TALIA_SUGGEST` apply only when their flag is not passed. Passing the flag explicitly, even with its default value (`--model=gpt-5-mini`, `--suggest-parallel=1`, `--suggest=0`), overrides the env var. String flags such as `--prompt`, `--api-base` and `--whois` fall back to their env var whenever they are empty.
 
 ### `--sleep` During Auto-Verification
 
@@ -83,7 +84,7 @@ The `--sleep` flag is ignored during the auto-verification step after `--suggest
 
 A failed check does not abort the run: the domain is recorded as unavailable with reason `ERROR` and the error text in `log` (regardless of `--verbose`). The exit code is `0` as long as the file is written.
 
-Progress lines use ANSI colors unconditionally, so piping or redirecting stdout captures raw escape codes.
+Progress lines and the summary are colored only when stdout is a terminal. Piped or redirected output, and any run with `NO_COLOR` set to a non-empty value, has no ANSI escape codes.
 
 ### Normalization
 
@@ -107,6 +108,8 @@ Every suggestion, cleaned domain, and merged domain is normalized:
 ### Merging
 
 `--merge` keeps the first occurrence of each domain; `--output-file` with `--grouped-output` keeps the newest result. See [ADR-0005](../adr/0005-two-merge-semantics.md).
+
+Writing to an existing `--output-file` keeps the order of its entries: a re-checked domain is updated where it is, and new domains, or domains that change bucket, are added at the end. Any `unverified` domains in the output file are kept, except those that were just checked.
 
 ## Related Documentation
 
