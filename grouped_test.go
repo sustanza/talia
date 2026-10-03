@@ -168,3 +168,72 @@ func TestWriteGroupedFile_RepeatedWritesAreByteIdentical(t *testing.T) {
 		previous = raw
 	}
 }
+
+func TestWriteGroupedFile_KeepsUnverifiedDomains(t *testing.T) {
+	path := writeGroupedFixture(t, ExtendedGroupedData{
+		Available: []GroupedDomain{{Domain: "old.com", Reason: ReasonNoMatch}},
+		Unverified: []DomainRecord{
+			{Domain: "pending1.com"},
+			{Domain: "checked.com"},
+			{Domain: "pending2.com", Log: "suggested"},
+		},
+	})
+
+	newest := GroupedData{
+		Unavailable: []GroupedDomain{{Domain: "checked.com", Reason: ReasonTaken}},
+	}
+	if err := WriteGroupedFile(path, newest); err != nil {
+		t.Fatalf("WriteGroupedFile: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read grouped file: %v", err)
+	}
+	var got ExtendedGroupedData
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("parse grouped file: %v", err)
+	}
+	wantUnverified := []DomainRecord{{Domain: "pending1.com"}, {Domain: "pending2.com", Log: "suggested"}}
+	if !reflect.DeepEqual(got.Unverified, wantUnverified) {
+		t.Errorf("unverified = %+v, want %+v", got.Unverified, wantUnverified)
+	}
+	wantUnavailable := []GroupedDomain{{Domain: "checked.com", Reason: ReasonTaken}}
+	if !reflect.DeepEqual(got.Unavailable, wantUnavailable) {
+		t.Errorf("unavailable = %+v, want %+v", got.Unavailable, wantUnavailable)
+	}
+	wantAvailable := []GroupedDomain{{Domain: "old.com", Reason: ReasonNoMatch}}
+	if !reflect.DeepEqual(got.Available, wantAvailable) {
+		t.Errorf("available = %+v, want %+v", got.Available, wantAvailable)
+	}
+}
+
+func TestWriteGroupedFile_OmitsEmptyUnverified(t *testing.T) {
+	path := writeGroupedFixture(t, ExtendedGroupedData{
+		Unverified: []DomainRecord{{Domain: "checked.com"}},
+	})
+
+	newest := GroupedData{
+		Available: []GroupedDomain{{Domain: "checked.com", Reason: ReasonNoMatch}},
+	}
+	if err := WriteGroupedFile(path, newest); err != nil {
+		t.Fatalf("WriteGroupedFile: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read grouped file: %v", err)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		t.Fatalf("parse grouped file: %v", err)
+	}
+	if _, ok := keys["unverified"]; ok {
+		t.Errorf("expected no unverified key, got file:\n%s", raw)
+	}
+	for _, k := range []string{"available", "unavailable"} {
+		if _, ok := keys[k]; !ok {
+			t.Errorf("expected %q key, got file:\n%s", k, raw)
+		}
+	}
+}

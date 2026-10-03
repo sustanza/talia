@@ -109,6 +109,8 @@ Every suggestion, cleaned domain, and merged domain is normalized:
 
 `--merge` keeps the first occurrence of each domain; `--output-file` with `--grouped-output` keeps the newest result. See [ADR-0005](../adr/0005-two-merge-semantics.md).
 
+Writing to an existing `--output-file` keeps the order of its entries: a re-checked domain is updated where it is, and new domains, or domains that change bucket, are added at the end. Any `unverified` domains in the output file are kept, except those that were just checked.
+
 ## Related Documentation
 
 - [Development Guide](development.md)
