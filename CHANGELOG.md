@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/sustanza/talia/compare/v1.5.0...v1.5.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* resolve triaged bugs [#30](https://github.com/sustanza/talia/issues/30)–[#35](https://github.com/sustanza/talia/issues/35) ([#37](https://github.com/sustanza/talia/issues/37)) ([c4612f2](https://github.com/sustanza/talia/commit/c4612f2dd36b4ee976cba7cd2bd5ede8a87c265d))
+
 ## [1.5.0](https://github.com/sustanza/talia/compare/v1.4.0...v1.5.0) (2026-03-11)
 
 
