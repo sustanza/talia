@@ -225,10 +225,10 @@ This writes one domain per line, making it easy to use with other tools.
 
 ### Parallel WHOIS Checking (Lightspeed Mode)
 
-Use `--lightspeed` for parallel WHOIS checking:
+Use `--lightspeed=<n>` for parallel WHOIS checking. The flag requires a value: a worker count or `max`.
 
-    # Use 10 concurrent workers (default)
-    ./talia --whois=whois.verisign-grs.com:43 --lightspeed domains.json
+    # Use 10 concurrent workers
+    ./talia --whois=whois.verisign-grs.com:43 --lightspeed=10 domains.json
 
     # Use 50 concurrent workers
     ./talia --whois=whois.verisign-grs.com:43 --lightspeed=50 domains.json
@@ -364,7 +364,7 @@ Talia's test suite covers:
 - **`--merge`**: Merge multiple domain files (use with `-o` to specify output file)
 - **`-o=<path>`**: Output file for merge operation (if not set, merges into first file)
 - **`--export-available=<path>`**: Export available domains to a plain text file (one domain per line)
-- **`--lightspeed[=<n>]`**: Enable parallel WHOIS checking with n workers (default 10, or `max` for unlimited)
+- **`--lightspeed=<n>`**: Enable parallel WHOIS checking with n workers, or `max` for one worker per domain (can also be set via `TALIA_LIGHTSPEED` env var)
 - **`--clean`**: Clean and normalize domains in the file (removes invalid domains, fixes malformed entries)
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains (can also be set via `TALIA_FILE` env var)
 
