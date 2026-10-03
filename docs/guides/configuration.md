@@ -22,7 +22,7 @@ All CLI flags, environment variables, and `.env` file support.
 | `--merge` | bool | `false` | Merge multiple domain files with deduplication |
 | `-o` | string | — | Output file for `--merge` |
 | `--export-available` | string | — | Export available domains to a plain text file |
-| `--lightspeed` | string | — | Parallel WHOIS: `"max"`, an integer, or empty for sequential |
+| `--lightspeed` | string | — | Parallel WHOIS: `"max"`, a positive integer, or empty for sequential. Any other value exits with an error |
 
 ## Environment Variables
 
@@ -36,7 +36,7 @@ All CLI flags, environment variables, and `.env` file support.
 | `TALIA_SUGGEST_PARALLEL` | `--suggest-parallel` | Number of parallel AI requests |
 | `TALIA_PROMPT` | `--prompt` | Extra context for AI suggestions |
 | `TALIA_MODEL` | `--model` | Only applies when `--model` is at its default value |
-| `TALIA_LIGHTSPEED` | `--lightspeed` | Parallel WHOIS worker count |
+| `TALIA_LIGHTSPEED` | `--lightspeed` | Parallel WHOIS worker count; invalid values exit with an error |
 
 ## Precedence
 

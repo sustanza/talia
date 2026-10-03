@@ -225,7 +225,7 @@ This writes one domain per line, making it easy to use with other tools.
 
 ### Parallel WHOIS Checking (Lightspeed Mode)
 
-Use `--lightspeed=<n>` for parallel WHOIS checking. The flag requires a value: a worker count or `max`.
+Use `--lightspeed=<n>` for parallel WHOIS checking. The flag requires a value: a positive worker count or `max`. Any other value exits with an error.
 
     # Use 10 concurrent workers
     ./talia --whois=whois.verisign-grs.com:43 --lightspeed=10 domains.json

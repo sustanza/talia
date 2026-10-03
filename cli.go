@@ -385,9 +385,9 @@ func RunCLI(args []string) int {
 	// Parse lightspeed flag: "" = sequential, "max" = unlimited, number = worker count
 	// Falls back to TALIA_LIGHTSPEED env var
 	workers := 0
-	ls := *lightspeed
+	ls, lsSource := *lightspeed, "--lightspeed"
 	if ls == "" {
-		ls = os.Getenv("TALIA_LIGHTSPEED")
+		ls, lsSource = os.Getenv("TALIA_LIGHTSPEED"), "TALIA_LIGHTSPEED"
 	}
 	if ls != "" {
 		if ls == "max" {
@@ -395,11 +395,10 @@ func RunCLI(args []string) int {
 		} else {
 			n, err := strconv.Atoi(ls)
 			if err != nil || n < 1 {
-				// invalid value defaults to 10
-				workers = 10
-			} else {
-				workers = n
+				fmt.Fprintf(os.Stderr, "Error: invalid %s value %q: want \"max\" or a positive integer\n", lsSource, ls)
+				return 1
 			}
+			workers = n
 		}
 	}
 
