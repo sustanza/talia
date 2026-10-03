@@ -33,5 +33,5 @@ go.work.sum
 
 tmp/
 
-talia
-talia-bin
+/talia
+/talia-bin
