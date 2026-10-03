@@ -20,6 +20,7 @@ go tool cover -func=coverage.out
 | `main_test.go` | Integration tests for all CLI paths |
 | `whois_test.go` | Unit tests for WHOIS client via `fakeWhoisClient` |
 | `suggestions_test.go` | Unit and integration tests for AI suggestion pipeline |
+| `progress_test.go` | Progress output coloring (terminal detection, `NO_COLOR`) |
 | `cmd/talia/main_test.go` | Tests that `main()` exits non-zero with no args |
 
 All library tests are in the `talia` package (white-box), giving access to unexported types and functions.

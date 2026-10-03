@@ -37,6 +37,7 @@ All CLI flags, environment variables, and `.env` file support.
 | `TALIA_PROMPT` | `--prompt` | Extra context for AI suggestions |
 | `TALIA_MODEL` | `--model` | AI model name |
 | `TALIA_LIGHTSPEED` | `--lightspeed` | Parallel WHOIS worker count; invalid values exit with an error |
+| `NO_COLOR` | — | Any non-empty value disables colored output ([no-color.org](https://no-color.org)) |
 
 ## Precedence
 
@@ -83,7 +84,7 @@ The `--sleep` flag is ignored during the auto-verification step after `--suggest
 
 A failed check does not abort the run: the domain is recorded as unavailable with reason `ERROR` and the error text in `log` (regardless of `--verbose`). The exit code is `0` as long as the file is written.
 
-Progress lines use ANSI colors unconditionally, so piping or redirecting stdout captures raw escape codes.
+Progress lines and the summary are colored only when stdout is a terminal. Piped or redirected output, and any run with `NO_COLOR` set to a non-empty value, has no ANSI escape codes.
 
 ### Normalization
 
