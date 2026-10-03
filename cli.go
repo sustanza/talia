@@ -304,6 +304,11 @@ func RunCLI(args []string) int {
 		return 1
 	}
 
+	// Env fallbacks for these flags apply only when the flag wasn't passed,
+	// so an explicit value always wins, even when it equals the default.
+	flagSet := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { flagSet[f.Name] = true })
+
 	// Get target file from args or env var
 	targetFile := ""
 	if fs.NArg() >= 1 {
@@ -405,7 +410,7 @@ func RunCLI(args []string) int {
 	// Determine suggest count: use flag if provided, otherwise check env var
 	// But only use env var if file has no unverified domains to check
 	suggestCount := *suggest
-	if suggestCount == 0 {
+	if !flagSet["suggest"] {
 		if envSuggest := os.Getenv("TALIA_SUGGEST"); envSuggest != "" {
 			if n, err := strconv.Atoi(envSuggest); err == nil && n > 0 {
 				// Check if file has unverified domains - if so, don't use env var
@@ -436,9 +441,9 @@ func RunCLI(args []string) int {
 		if promptText == "" {
 			promptText = os.Getenv("TALIA_PROMPT")
 		}
-		// Use env var if --model not provided (and not default)
+		// Use env var if --model not provided
 		modelName := *model
-		if modelName == defaultOpenAIModel {
+		if !flagSet["model"] {
 			if envModel := os.Getenv("TALIA_MODEL"); envModel != "" {
 				modelName = envModel
 			}
@@ -450,7 +455,7 @@ func RunCLI(args []string) int {
 		}
 
 		parallelReqs := *suggestParallel
-		if parallelReqs == 1 {
+		if !flagSet["suggest-parallel"] {
 			if envParallel := os.Getenv("TALIA_SUGGEST_PARALLEL"); envParallel != "" {
 				if n, err := strconv.Atoi(envParallel); err == nil && n > 0 {
 					parallelReqs = n

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -343,6 +344,88 @@ func TestNormalizeDomain(t *testing.T) {
 			got := normalizeDomain(tt.input)
 			if got != tt.want {
 				t.Errorf("normalizeDomain(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// suggestAPICalls records the requests received by a fake suggestion API.
+type suggestAPICalls struct {
+	mu     sync.Mutex
+	models []string
+}
+
+func (c *suggestAPICalls) snapshot() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.models...)
+}
+
+// runSuggestCLI runs RunCLI against a fake suggestion API with the given env vars set
+// and returns the model named in each request the API received.
+func runSuggestCLI(t *testing.T, env map[string]string, args ...string) []string {
+	t.Helper()
+	calls := &suggestAPICalls{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		calls.mu.Lock()
+		calls.models = append(calls.models, payload.Model)
+		calls.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"suggest_domains","arguments":"{\"unverified\":[{\"domain\":\"c.com\"}]}"}}]}}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	testHTTPClient = fakeHTTPClient{srv}
+	testBaseURL = srv.URL
+	t.Cleanup(func() {
+		testHTTPClient = nil
+		testBaseURL = ""
+	})
+
+	for _, k := range []string{"TALIA_MODEL", "TALIA_SUGGEST", "TALIA_SUGGEST_PARALLEL", "WHOIS_SERVER", "TALIA_LIGHTSPEED"} {
+		t.Setenv(k, env[k])
+	}
+	t.Setenv("OPENAI_API_KEY", "key")
+
+	file := filepath.Join(t.TempDir(), "suggestions.json")
+	captureOutput(t, func() { RunCLI(append(args, file)) })
+	return calls.snapshot()
+}
+
+func TestRunCLI_ExplicitFlagsBeatEnvFallbacks(t *testing.T) {
+	cases := []struct {
+		name         string
+		env          map[string]string
+		args         []string
+		wantRequests int
+		wantModel    string
+	}{
+		{"explicit default model", map[string]string{"TALIA_MODEL": "env-model"},
+			[]string{"--suggest=1", "--model=" + defaultOpenAIModel}, 1, defaultOpenAIModel},
+		{"model from env", map[string]string{"TALIA_MODEL": "env-model"},
+			[]string{"--suggest=1"}, 1, "env-model"},
+		{"explicit default parallel", map[string]string{"TALIA_SUGGEST_PARALLEL": "4"},
+			[]string{"--suggest=1", "--suggest-parallel=1"}, 1, defaultOpenAIModel},
+		{"parallel from env", map[string]string{"TALIA_SUGGEST_PARALLEL": "4"},
+			[]string{"--suggest=1"}, 4, defaultOpenAIModel},
+		{"explicit zero suggest", map[string]string{"TALIA_SUGGEST": "10"},
+			[]string{"--suggest=0"}, 0, ""},
+		{"suggest from env", map[string]string{"TALIA_SUGGEST": "1"},
+			nil, 1, defaultOpenAIModel},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			models := runSuggestCLI(t, tc.env, tc.args...)
+			if len(models) != tc.wantRequests {
+				t.Fatalf("API received %d requests, want %d", len(models), tc.wantRequests)
+			}
+			for _, m := range models {
+				if m != tc.wantModel {
+					t.Errorf("request used model %q, want %q", m, tc.wantModel)
+				}
 			}
 		})
 	}

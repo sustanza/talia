@@ -35,7 +35,7 @@ All CLI flags, environment variables, and `.env` file support.
 | `TALIA_SUGGEST` | `--suggest` | Ignored if file has pending `unverified` domains |
 | `TALIA_SUGGEST_PARALLEL` | `--suggest-parallel` | Number of parallel AI requests |
 | `TALIA_PROMPT` | `--prompt` | Extra context for AI suggestions |
-| `TALIA_MODEL` | `--model` | Only applies when `--model` is at its default value |
+| `TALIA_MODEL` | `--model` | AI model name |
 | `TALIA_LIGHTSPEED` | `--lightspeed` | Parallel WHOIS worker count; invalid values exit with an error |
 
 ## Precedence
@@ -69,9 +69,9 @@ Rules:
 - A variable set to empty string in the shell (`export KEY=""`) counts as "existing" and will not be overwritten.
 - Silently ignored if the file doesn't exist.
 
-### Env Var Override Quirks
+### Explicit Flags Always Win
 
-The env vars for `--model` and `--suggest-parallel` only apply when the flag value equals its hardcoded default. This means explicitly passing the default value on the CLI (e.g., `--model=gpt-5-mini` or `--suggest-parallel=1`) still allows the env var to override it, since the comparison is against the string constant rather than whether the flag was explicitly set.
+`TALIA_MODEL`, `TALIA_SUGGEST_PARALLEL` and `TALIA_SUGGEST` apply only when their flag is not passed. Passing the flag explicitly, even with its default value (`--model=gpt-5-mini`, `--suggest-parallel=1`, `--suggest=0`), overrides the env var. String flags such as `--prompt`, `--api-base` and `--whois` fall back to their env var whenever they are empty.
 
 ### `--sleep` During Auto-Verification
 
