@@ -96,8 +96,8 @@ Talia can generate domain name suggestions using AI, check domain availability v
 
 ### Prerequisites
 
-- Go 1.24.3 or later (uses `tool` directive in `go.mod`)
-- golangci-lint v2.8.0 (declared as a Go tool; auto-downloads on first use)
+- Go 1.27.1 or later (as declared in `go.mod`; with the default `GOTOOLCHAIN=auto`, an older Go downloads it automatically)
+- golangci-lint v2.14.0 (declared as a Go tool; auto-downloads on first use)
 
 ### Steps
 
@@ -106,7 +106,7 @@ Talia can generate domain name suggestions using AI, check domain availability v
     cd talia
 
     # Build Talia:
-    go build -o talia
+    go build -o talia ./cmd/talia/
 
 ---
 
@@ -156,7 +156,7 @@ OPENAI_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
 WHOIS_SERVER=whois.verisign-grs.com:43
 TALIA_PROMPT=short brandable startup names
 TALIA_SUGGEST=10
-TALIA_MODEL=gemini-2.5-flash
+TALIA_MODEL=gemini-3.1-flash-lite
 TALIA_FILE=suggestions.json
 ```
 
@@ -169,7 +169,7 @@ Use the `--suggest` flag to generate domain ideas. If you also provide `--whois`
     OPENAI_API_KEY=... ./talia --suggest=5 --no-verify --prompt="short brandable names" suggestions.json
 
     # Use Google Gemini
-    OPENAI_API_KEY=... ./talia --suggest=5 --whois=whois.verisign-grs.com:43 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-3.0-flash suggestions.json
+    OPENAI_API_KEY=... ./talia --suggest=5 --whois=whois.verisign-grs.com:43 --api-base="https://generativelanguage.googleapis.com/v1beta/openai" --model=gemini-3.1-flash-lite suggestions.json
 
 #### Parallel Suggestion Requests
 
@@ -225,10 +225,10 @@ This writes one domain per line, making it easy to use with other tools.
 
 ### Parallel WHOIS Checking (Lightspeed Mode)
 
-Use `--lightspeed` for parallel WHOIS checking:
+Use `--lightspeed=<n>` for parallel WHOIS checking. The flag requires a value: a worker count or `max`.
 
-    # Use 10 concurrent workers (default)
-    ./talia --whois=whois.verisign-grs.com:43 --lightspeed domains.json
+    # Use 10 concurrent workers
+    ./talia --whois=whois.verisign-grs.com:43 --lightspeed=10 domains.json
 
     # Use 50 concurrent workers
     ./talia --whois=whois.verisign-grs.com:43 --lightspeed=50 domains.json
@@ -364,7 +364,7 @@ Talia's test suite covers:
 - **`--merge`**: Merge multiple domain files (use with `-o` to specify output file)
 - **`-o=<path>`**: Output file for merge operation (if not set, merges into first file)
 - **`--export-available=<path>`**: Export available domains to a plain text file (one domain per line)
-- **`--lightspeed[=<n>]`**: Enable parallel WHOIS checking with n workers (default 10, or `max` for unlimited)
+- **`--lightspeed=<n>`**: Enable parallel WHOIS checking with n workers, or `max` for one worker per domain (can also be set via `TALIA_LIGHTSPEED` env var)
 - **`--clean`**: Clean and normalize domains in the file (removes invalid domains, fixes malformed entries)
 - **Input JSON**: The file containing an array of domain objects or a grouped object with unverified domains (can also be set via `TALIA_FILE` env var)
 
@@ -372,7 +372,9 @@ Talia's test suite covers:
 
 ## Documentation
 
-For detailed architecture decisions, feature specs, configuration reference, and development guides, see the [docs/](docs/README.md) directory.
+- [`GLOSSARY.md`](GLOSSARY.md) — domain vocabulary
+- [`docs/adr/`](docs/adr/) — architecture decisions
+- [`docs/guides/`](docs/guides/) — development, configuration, and testing guides
 
 ## Contributing
 

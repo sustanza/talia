@@ -4,12 +4,12 @@ Building, running, and contributing to Talia.
 
 ## Prerequisites
 
-- Go 1.24.3 (as specified in `go.mod`; uses `tool` directive for golangci-lint)
+- Go 1.27.1 (as specified in `go.mod`; uses `tool` directive for golangci-lint)
 
 ## Build
 
 ```bash
-go build -o talia
+go build -o talia ./cmd/talia/
 ```
 
 The binary is built from `cmd/talia/main.go`, which is a thin wrapper around `talia.RunCLI()`.
@@ -49,9 +49,9 @@ All domain logic lives in the root `talia` package. The `cmd/talia/` sub-package
 go tool golangci-lint run
 ```
 
-Uses golangci-lint v2 (pinned to v2.8.0 in `go.mod`) via Go's tool directive — auto-downloads on first run. Config in `.golangci.yml` explicitly enables: `govet`, `staticcheck`, `errcheck`.
+Uses golangci-lint v2 (pinned to v2.14.0 in `go.mod`) via Go's tool directive — auto-downloads on first run. Config in `.golangci.yml` explicitly enables: `govet`, `staticcheck`, `errcheck`.
 
-Note: CI uses `golangci/golangci-lint-action@v8` (GitHub Action) rather than `go tool golangci-lint run`, but both read the same `.golangci.yml` config.
+Note: CI uses `golangci/golangci-lint-action@v9` (GitHub Action) rather than `go tool golangci-lint run`, pinned to the same version, and both read the same `.golangci.yml` config. CI reads the Go version from `go.mod`.
 
 ## Commit Convention
 
@@ -77,7 +77,7 @@ Defined in `.github/workflows/ci.yml`. Runs on every push and PR:
 
 Defined in `.github/workflows/release.yml`. Runs on pushes to `main`:
 
-- Uses `release-please-action` v4 with `release-type: simple`
+- Uses `release-please-action` v5 with `release-type: simple`
 - Auto-generates changelog from conventional commits
 - Creates release PRs and tags with `v` prefix
 

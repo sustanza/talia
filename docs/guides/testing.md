@@ -67,5 +67,4 @@ The `captureOutput` helper (in `main_test.go`) uses `os.Pipe()` to redirect `os.
 ## Related Documentation
 
 - [Development Guide](development.md)
-- [Domain Checking](../features/domain-checking.md)
-- [AI Suggestions](../features/ai-suggestions.md)
+- [Configuration Reference](configuration.md)
