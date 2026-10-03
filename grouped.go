@@ -11,23 +11,23 @@ import (
 // into the same bucket; new domains, and domains that change bucket, are appended in input
 // order, so repeated writes produce stable output.
 func mergeGrouped(existing, newest GroupedData) GroupedData {
-	// latest holds the newest result per domain and which bucket it belongs in.
-	type result struct {
+	// latest holds the newest entry per domain and which bucket it belongs in.
+	type bucketedEntry struct {
 		rec       GroupedDomain
 		available bool
 	}
-	latest := make(map[string]result)
+	latest := make(map[string]bucketedEntry)
 	for _, gd := range existing.Available {
-		latest[gd.Domain] = result{gd, true}
+		latest[gd.Domain] = bucketedEntry{gd, true}
 	}
 	for _, gd := range existing.Unavailable {
-		latest[gd.Domain] = result{gd, false}
+		latest[gd.Domain] = bucketedEntry{gd, false}
 	}
 	for _, gd := range newest.Available {
-		latest[gd.Domain] = result{gd, true}
+		latest[gd.Domain] = bucketedEntry{gd, true}
 	}
 	for _, gd := range newest.Unavailable {
-		latest[gd.Domain] = result{gd, false}
+		latest[gd.Domain] = bucketedEntry{gd, false}
 	}
 
 	// Emit domains in order of first appearance within their final bucket.
@@ -139,4 +139,3 @@ func WriteGroupedFile(path string, newest GroupedData) error {
 	}
 	return nil
 }
-

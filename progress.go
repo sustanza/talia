@@ -45,15 +45,15 @@ const (
 
 // progress tracks the current position in a series of operations (thread-safe).
 type progress struct {
-	current int64
-	total   int64
-	color   bool
-	mu      sync.Mutex // protects printing
+	current  int64
+	total    int64
+	useColor bool
+	mu       sync.Mutex // protects printing
 }
 
 // newProgress creates a new progress counter with the given total.
 func newProgress(total int) *progress {
-	return &progress{total: int64(total), color: colorEnabled()}
+	return &progress{total: int64(total), useColor: colorEnabled()}
 }
 
 // IncrementAndPrint atomically increments the counter and prints the check result.
@@ -78,7 +78,7 @@ func (p *progress) IncrementAndPrint(domain string, available bool, reason Avail
 	}
 
 	p.mu.Lock()
-	fmt.Printf("[%d/%d] %s %s %s\n", current, p.total, domain, colorize(p.color, color, symbol), status)
+	fmt.Printf("[%d/%d] %s %s %s\n", current, p.total, domain, colorize(p.useColor, color, symbol), status)
 	p.mu.Unlock()
 }
 
@@ -88,12 +88,12 @@ type checkStats struct {
 	taken     int64
 	errors    int64
 	startTime time.Time
-	color     bool
+	useColor  bool
 }
 
 // newCheckStats creates a new stats tracker and records the start time.
 func newCheckStats() *checkStats {
-	return &checkStats{startTime: time.Now(), color: colorEnabled()}
+	return &checkStats{startTime: time.Now(), useColor: colorEnabled()}
 }
 
 // Record updates stats based on a check result (thread-safe).
@@ -113,12 +113,12 @@ func (s *checkStats) PrintSummary() {
 	elapsed := time.Since(s.startTime)
 	fmt.Printf("\nDone in %.1fs\n", elapsed.Seconds())
 	if s.available > 0 {
-		fmt.Printf("  %s\n", colorize(s.color, colorGreen, fmt.Sprintf("%s %d available", symbolAvailable, s.available)))
+		fmt.Printf("  %s\n", colorize(s.useColor, colorGreen, fmt.Sprintf("%s %d available", symbolAvailable, s.available)))
 	}
 	if s.taken > 0 {
-		fmt.Printf("  %s\n", colorize(s.color, colorRed, fmt.Sprintf("%s %d taken", symbolTaken, s.taken)))
+		fmt.Printf("  %s\n", colorize(s.useColor, colorRed, fmt.Sprintf("%s %d taken", symbolTaken, s.taken)))
 	}
 	if s.errors > 0 {
-		fmt.Printf("  %s\n", colorize(s.color, colorYellow, fmt.Sprintf("%s %d errors", symbolError, s.errors)))
+		fmt.Printf("  %s\n", colorize(s.useColor, colorYellow, fmt.Sprintf("%s %d errors", symbolError, s.errors)))
 	}
 }
