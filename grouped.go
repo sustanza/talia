@@ -7,31 +7,55 @@ import (
 )
 
 // mergeGrouped merges new grouped results into existing grouped data, deduplicating by domain.
+// The newest result for a domain wins. Existing entries keep their position when re-checked
+// into the same bucket; new domains, and domains that change bucket, are appended in input
+// order, so repeated writes produce stable output.
 func mergeGrouped(existing, newest GroupedData) GroupedData {
-	domainsAvail := make(map[string]GroupedDomain)
+	// latest holds the newest result per domain and which bucket it belongs in.
+	type result struct {
+		rec       GroupedDomain
+		available bool
+	}
+	latest := make(map[string]result)
 	for _, gd := range existing.Available {
-		domainsAvail[gd.Domain] = gd
+		latest[gd.Domain] = result{gd, true}
 	}
-	domainsUnavail := make(map[string]GroupedDomain)
 	for _, gd := range existing.Unavailable {
-		domainsUnavail[gd.Domain] = gd
+		latest[gd.Domain] = result{gd, false}
 	}
-
 	for _, gd := range newest.Available {
-		domainsAvail[gd.Domain] = gd
-		delete(domainsUnavail, gd.Domain)
+		latest[gd.Domain] = result{gd, true}
 	}
 	for _, gd := range newest.Unavailable {
-		domainsUnavail[gd.Domain] = gd
-		delete(domainsAvail, gd.Domain)
+		latest[gd.Domain] = result{gd, false}
 	}
 
+	// Emit domains in order of first appearance within their final bucket.
 	out := GroupedData{}
-	for _, rec := range domainsAvail {
-		out.Available = append(out.Available, rec)
+	emitted := make(map[string]bool)
+	emit := func(gd GroupedDomain, available bool) {
+		r := latest[gd.Domain]
+		if emitted[gd.Domain] || r.available != available {
+			return
+		}
+		emitted[gd.Domain] = true
+		if available {
+			out.Available = append(out.Available, r.rec)
+		} else {
+			out.Unavailable = append(out.Unavailable, r.rec)
+		}
 	}
-	for _, rec := range domainsUnavail {
-		out.Unavailable = append(out.Unavailable, rec)
+	for _, gd := range existing.Available {
+		emit(gd, true)
+	}
+	for _, gd := range newest.Available {
+		emit(gd, true)
+	}
+	for _, gd := range existing.Unavailable {
+		emit(gd, false)
+	}
+	for _, gd := range newest.Unavailable {
+		emit(gd, false)
 	}
 	return out
 }
