@@ -372,7 +372,9 @@ Talia's test suite covers:
 
 ## Documentation
 
-For detailed architecture decisions, feature specs, configuration reference, and development guides, see the [docs/](docs/README.md) directory.
+- [`GLOSSARY.md`](GLOSSARY.md) — domain vocabulary
+- [`docs/adr/`](docs/adr/) — architecture decisions
+- [`docs/guides/`](docs/guides/) — development, configuration, and testing guides
 
 ## Contributing
 

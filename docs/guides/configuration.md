@@ -71,14 +71,45 @@ Rules:
 
 ### Env Var Override Quirks
 
-The env vars for `--model` and `--suggest-parallel` only apply when the flag value equals its hardcoded default. This means explicitly passing the default value on the CLI (e.g., `--model=gpt-5-mini` or `--suggest-parallel=1`) still allows the env var to override it, since the comparison is against the string constant rather than whether the flag was explicitly set. See [Known Issues](../plans/known-issues.md).
+The env vars for `--model` and `--suggest-parallel` only apply when the flag value equals its hardcoded default. This means explicitly passing the default value on the CLI (e.g., `--model=gpt-5-mini` or `--suggest-parallel=1`) still allows the env var to override it, since the comparison is against the string constant rather than whether the flag was explicitly set.
 
 ### `--sleep` During Auto-Verification
 
 The `--sleep` flag is ignored during the auto-verification step after `--suggest`. Auto-verification uses a hardcoded 100ms delay between WHOIS checks for speed. The `--sleep` value only applies to standalone WHOIS checking runs.
 
+## Behavior Notes
+
+### Check errors
+
+A failed check does not abort the run: the domain is recorded as unavailable with reason `ERROR` and the error text in `log` (regardless of `--verbose`). The exit code is `0` as long as the file is written.
+
+Progress lines use ANSI colors unconditionally, so piping or redirecting stdout captures raw escape codes.
+
+### Normalization
+
+Every suggestion, cleaned domain, and merged domain is normalized:
+
+| Rule | Example |
+|---|---|
+| Lowercase and trim whitespace | `" Example.COM "` → `"example.com"` |
+| Strip repeated `.com` suffixes | `"foo.com.com.com"` → `"foo.com"` |
+| Collapse double dots | `"foo..com"` → `"foo.com"` |
+| Must end with `.com` | `"foo.io"` → rejected |
+| No subdomains | `"sub.foo.com"` → rejected |
+| Label is `[a-z0-9-]`, no leading/trailing hyphen | `"-foo.com"` → rejected |
+
+### `--clean`
+
+- Valid JSON is cleaned as a grouped file; anything else as plain text, one domain per line.
+- In grouped files, duplicates are resolved in bucket order available → unavailable → unverified, so a domain in both `available` and `unverified` keeps the `available` entry.
+- In plain text, blank lines and lines starting with `#` are skipped, the first occurrence wins, and input order is preserved.
+
+### Merging
+
+`--merge` keeps the first occurrence of each domain; `--output-file` with `--grouped-output` keeps the newest result. See [ADR-0005](../adr/0005-two-merge-semantics.md).
+
 ## Related Documentation
 
 - [Development Guide](development.md)
-- [Domain Checking](../features/domain-checking.md)
-- [AI Suggestions](../features/ai-suggestions.md)
+- [Glossary](../../GLOSSARY.md)
+- [ADRs](../adr/)
